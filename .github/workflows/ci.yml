@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:   # permite disparar manualmente pela aba Actions
 
 # Encerramento de sessão, retomada e deploy compartilham este grupo
 # (arquitetura, §6.4). cancel-in-progress fica falso de propósito: um
