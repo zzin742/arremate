@@ -14,11 +14,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  banco:
-    name: Migrations e constraints
+  qualidade:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+
+  testes:
+    name: Banco, constraints e serviços
+    runs-on: ubuntu-latest
+    # Os testes dos serviços são de integração: batem num Postgres de
+    # verdade, com as constraints aplicadas. Rodar sem banco não provaria
+    # nada sobre as regras, que é justamente onde elas moram.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
 
       - name: Subir Postgres
         run: docker compose up -d --wait postgres
@@ -38,16 +53,11 @@ jobs:
             exit 1
           fi
           echo "ok: o teste acusou a ausência da constraint"
+          docker exec -i arremate-postgres-1 psql -U arremate -q -d arremate_vis \
+            -c "ALTER TABLE visita ADD CONSTRAINT visita_sem_sobreposicao
+                EXCLUDE USING gist (id_equipamento WITH =, periodo WITH &&)
+                WHERE (status = 'agendada');"
 
-  codigo:
-    name: Lint e testes
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
       - run: npm ci
-      - run: npm run lint
-      - run: npm test
+      - name: Testes dos serviços
+        run: npm test
