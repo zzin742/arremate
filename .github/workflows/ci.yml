@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Encerramento de sessão, retomada e deploy compartilham este grupo
+# (arquitetura, §6.4). cancel-in-progress fica falso de propósito: um
+# encerramento cancelado pela metade é pior que um enfileirado.
+concurrency:
+  group: arremate-dev-infra
+  cancel-in-progress: false
+
+jobs:
+  banco:
+    name: Migrations e constraints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir Postgres
+        run: docker compose up -d --wait postgres
+
+      - name: Aplicar migrations e provar as constraints
+        run: bash db/testes/rodar.sh
+
+      - name: Provar que o teste pega constraint ausente
+        # Um teste que não falha quando a regra some não prova nada.
+        # Este passo derruba o EXCLUDE e exige que o teste acuse.
+        run: |
+          docker exec -i arremate-postgres-1 psql -U arremate -q \
+            -d arremate_vis -c "ALTER TABLE visita DROP CONSTRAINT visita_sem_sobreposicao;"
+          if docker exec -i arremate-postgres-1 psql -U arremate -v ON_ERROR_STOP=1 \
+               -q -d postgres < db/testes/constraints.test.sql; then
+            echo "::error::o teste PASSOU sem a constraint — ele não está provando nada"
+            exit 1
+          fi
+          echo "ok: o teste acusou a ausência da constraint"
+
+  codigo:
+    name: Lint e testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test

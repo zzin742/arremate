@@ -1,0 +1,49 @@
+# Ambiente local completo (RNF-028: contingência por Docker Compose na banca).
+#
+# LocalStack cobre S3, SNS e SQS — as três APIs da AWS que a aplicação usa.
+# O planejamento previa MinIO junto, mas ele seria redundante: o S3 do
+# LocalStack atende, e uma peça a menos é uma peça a menos para manter
+# funcionando no dia da defesa.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: arremate
+      POSTGRES_PASSWORD: arremate
+      POSTGRES_DB: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arremate"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3,sns,sqs
+      DEBUG: "0"
+    ports: ["4566:4566"]
+    volumes:
+      - ./infra/localstack-init:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
