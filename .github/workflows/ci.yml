@@ -24,6 +24,22 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    # Só formato e validação: `plan` exigiria credencial da AWS, e a do
+    # Learner Lab expira a cada sessão — não dá para guardar em secret.
+    strategy:
+      matrix:
+        camada: [bootstrap, ambientes/dev/persistente, ambientes/dev/efemera]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - run: terraform -chdir=infra/${{ matrix.camada }} fmt -check -diff
+      - run: terraform -chdir=infra/${{ matrix.camada }} init -backend=false -input=false
+      - run: terraform -chdir=infra/${{ matrix.camada }} validate
+
   testes:
     name: Banco, constraints e serviços
     runs-on: ubuntu-latest
