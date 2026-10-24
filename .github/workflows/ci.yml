@@ -45,14 +45,15 @@ jobs:
         # Dockerfile compilava e quebrava no start, porque ARG não existe
         # em tempo de execução e o CMD procurava um caminho vazio.
         run: |
-          docker run -d --name t -e PORTA=3000 -p 3000:3000 \
+          docker run -d --name prova-${{ matrix.servico }} \
+            -e PORTA=3000 -p 3000:3000 \
             arremate/${{ matrix.servico }}:ci
           for i in $(seq 1 20); do
             if curl -sf localhost:3000/saude; then echo " <- respondeu"; exit 0; fi
             sleep 2
           done
           echo "::error::container não respondeu em /saude"
-          docker logs t
+          docker logs prova-${{ matrix.servico }}
           exit 1
 
   terraform:
