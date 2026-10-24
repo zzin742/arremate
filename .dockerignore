@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+.git
+dist
+coverage
+web
+infra
+docs
+db/testes
+*.md

@@ -24,6 +24,31 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  imagens:
+    name: Imagens dos serviços
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        servico: [auth, hab, lei, cau]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir
+        run: docker build --build-arg SERVICO=${{ matrix.servico }} \
+               -f services/${{ matrix.servico }}/Dockerfile \
+               -t arremate/${{ matrix.servico }}:ci .
+      - name: Provar que a imagem RODA
+        # Build que passa não prova que o container sobe. O primeiro
+        # Dockerfile compilava e quebrava no start, porque ARG não existe
+        # em tempo de execução e o CMD procurava um caminho vazio.
+        run: |
+          docker run -d --name t -e PORTA=3000 -p 3000:3000 \
+            arremate/${{ matrix.servico }}:ci
+          for i in $(seq 1 20); do
+            if curl -sf localhost:3000/saude; then echo " <- respondeu"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::container não respondeu em /saude"; docker logs t; exit 1
+
   terraform:
     name: Terraform
     runs-on: ubuntu-latest
