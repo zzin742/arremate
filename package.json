@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "services/*",
-    "packages/*"
+    "packages/*",
+    "web"
   ],
   "engines": {
     "node": ">=20"
@@ -15,10 +16,12 @@
     "db:reset": "docker compose down -v && docker compose up -d --wait",
     "test:db": "bash db/testes/rodar.sh",
     "lint": "eslint .",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "web": "npm run dev --workspace @arremate/web"
   },
   "devDependencies": {
     "eslint": "9.15.0",
+    "eslint-plugin-react": "^7.37.2",
     "typescript": "5.7.2"
   }
 }

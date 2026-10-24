@@ -7,6 +7,19 @@ const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
 export const app = express();
 app.use(express.json());
 
+// O frontend roda em outra porta (5173), então o navegador trata como
+// origem diferente e exige CORS. Em produção o CloudFront serve os dois
+// sob o mesmo domínio e isso deixa de ser necessário (ADR-011).
+app.use((req, res, next) => {
+  res.set({
+    'Access-Control-Allow-Origin': process.env.ORIGEM_PERMITIDA ?? 'http://localhost:5173',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  });
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 /** Exige token emitido pelo AUTH; verificado por assinatura, sem chamada de rede. */
 function exigirSessao(req, _res, next) {
   try {

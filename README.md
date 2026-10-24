@@ -91,3 +91,26 @@ PGDATABASE=arremate_auth npm start -w @arremate/auth  # sobe em :3001
 ```
 
 Endpoints: `POST /empresas`, `POST /sessoes`, `GET /eu`, `GET /saude`.
+
+## Rodar tudo (MVP de dezembro)
+
+```bash
+npm run db:up                                  # Postgres, Redis, LocalStack
+npm run test:db                                # migrations + constraints
+npm start -w @arremate/auth   &                # :3001
+npm start -w @arremate/lei    &                # :3002
+npm run web                                    # :5173
+```
+
+Abra http://localhost:5173, cadastre uma empresa, abra um leilão e dê
+lances. Para ver a disputa, abra duas abas com empresas diferentes — o
+vendedor não consegue lançar no próprio leilão.
+
+CNPJs válidos para teste: `11222333000181` e `11444777000161`.
+
+### Testes
+
+```bash
+npm test          # 34 testes dos serviços (precisa do banco de pé)
+npm run lint
+```

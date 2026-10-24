@@ -5,6 +5,19 @@ import { cadastrar, autenticar, verificarToken, ErroDeRegra } from './empresas.j
 export const app = express();
 app.use(express.json());
 
+// O frontend roda em outra porta (5173), então o navegador trata como
+// origem diferente e exige CORS. Em produção o CloudFront serve os dois
+// sob o mesmo domínio e isso deixa de ser necessário (ADR-011).
+app.use((req, res, next) => {
+  res.set({
+    'Access-Control-Allow-Origin': process.env.ORIGEM_PERMITIDA ?? 'http://localhost:5173',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  });
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 const esquemaCadastro = z.object({
   cnpj: z.string().min(14),
   razaoSocial: z.string().min(3).max(150),
