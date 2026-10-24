@@ -35,8 +35,22 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
 
-      - name: Subir Postgres
-        run: docker compose up -d --wait postgres
+      - name: Subir Postgres e LocalStack
+        # O LocalStack simula S3, SNS e SQS. Os testes da outbox batem
+        # nele de verdade: publicam, esperam a assinatura entregar na
+        # fila e conferem que a mensagem não some quando o tratamento
+        # falha. Com dublê nenhum desses três seria exercitado.
+        run: docker compose up -d --wait postgres localstack
+
+      - name: Esperar as filas e tópicos
+        run: |
+          for i in $(seq 1 40); do
+            if docker exec arremate-localstack-1 awslocal s3 ls 2>/dev/null | grep -q arremate-midia; then
+              echo "mensageria pronta"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::LocalStack não terminou o init"; exit 1
 
       - name: Aplicar migrations e provar as constraints
         run: bash db/testes/rodar.sh

@@ -4,6 +4,8 @@ const globaisNode = {
   process: 'readonly', console: 'readonly', Buffer: 'readonly',
   URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly',
   setInterval: 'readonly', clearInterval: 'readonly',
+  // globais do Node moderno, usados pela integração com a API externa
+  fetch: 'readonly', AbortSignal: 'readonly', crypto: 'readonly',
 };
 
 const globaisNavegador = {

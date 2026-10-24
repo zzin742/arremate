@@ -36,6 +36,15 @@ services:
     environment:
       SERVICES: s3,sns,sqs
       DEBUG: "0"
+      # O LocalStack carrega provedores sob demanda e cresce rápido. Com
+      # 3,8 GB no Docker Desktop ele foi morto por OOM (exit 247) durante
+      # os testes. O limite abaixo o mantém previsível; se precisar de
+      # mais serviços, suba a memória do Docker junto.
+      EAGER_SERVICE_LOADING: "0"
+      SQS_DISABLE_CLOUDWATCH_METRICS: "1"
+    deploy:
+      resources:
+        limits: { memory: 1300M }
     ports: ["4566:4566"]
     volumes:
       - ./infra/localstack-init:/etc/localstack/init/ready.d:ro
