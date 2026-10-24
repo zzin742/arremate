@@ -61,3 +61,33 @@ some não prova nada.
 Cada banco tem `schema_migrations`. A migration só roda se ainda não estiver
 registrada, e o registro acontece na **mesma transação** da migration. Rodar
 duas vezes é seguro.
+
+## Conectar pelo DBeaver
+
+Com `npm run db:up` rodando:
+
+| Campo | Valor |
+|---|---|
+| Host | `localhost` |
+| Porta | `5432` |
+| Usuário | `arremate` |
+| Senha | `arremate` |
+| Banco | `arremate_auth`, `arremate_lei`, `arremate_cau`, `arremate_vis`… |
+
+São **sete bancos**, um por serviço. O usuário `arremate` é o dono e enxerga
+todos; os usuários `svc_auth`, `svc_lei` etc. enxergam só o próprio — é assim
+que a separação é imposta, e não por convenção.
+
+Pra ver as constraints no DBeaver: *Database Navigator* → banco → `Schemas`
+→ `public` → `Tables` → tabela → aba **Constraints**.
+
+## Rodar o AUTH
+
+```bash
+npm run db:up
+npm run test:db                                   # migrations + constraints
+PGDATABASE=arremate_auth npm test -w @arremate/auth   # testes do serviço
+PGDATABASE=arremate_auth npm start -w @arremate/auth  # sobe em :3001
+```
+
+Endpoints: `POST /empresas`, `POST /sessoes`, `GET /eu`, `GET /saude`.
