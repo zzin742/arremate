@@ -1,8 +1,14 @@
 {
   "name": "arremate",
   "private": true,
-  "workspaces": ["services/*", "packages/*"],
-  "engines": { "node": ">=20" },
+  "type": "module",
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
