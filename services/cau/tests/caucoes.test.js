@@ -133,8 +133,7 @@ describe('máquina de estados', () => {
     assert.equal(rows[0].n, 3, 'ele aconteceu; não aplicar é diferente de não registrar');
   });
 
-  test('pendente não pode ir direto para abatida', async () => {
-    const c = await solicitar({ idLeilao: LEILAO, idEmpresa: EMPRESA, valor: 500 }, { provedor });
+  test('pendente não pode ir direto para abatida', () => {
     assert.ok(!TRANSICOES.pendente.includes('abatida'),
       'abater sem confirmar seria cobrar quem não pagou');
   });

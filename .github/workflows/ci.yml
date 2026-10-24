@@ -28,14 +28,18 @@ jobs:
     name: Imagens dos serviços
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false   # um serviço quebrado não esconde o estado dos outros
       matrix:
         servico: [auth, hab, lei, cau]
     steps:
       - uses: actions/checkout@v4
+
       - name: Construir
-        run: docker build --build-arg SERVICO=${{ matrix.servico }} \
-               -f services/${{ matrix.servico }}/Dockerfile \
-               -t arremate/${{ matrix.servico }}:ci .
+        run: |
+          docker build --build-arg SERVICO=${{ matrix.servico }} \
+            -f services/${{ matrix.servico }}/Dockerfile \
+            -t arremate/${{ matrix.servico }}:ci .
+
       - name: Provar que a imagem RODA
         # Build que passa não prova que o container sobe. O primeiro
         # Dockerfile compilava e quebrava no start, porque ARG não existe
@@ -47,7 +51,9 @@ jobs:
             if curl -sf localhost:3000/saude; then echo " <- respondeu"; exit 0; fi
             sleep 2
           done
-          echo "::error::container não respondeu em /saude"; docker logs t; exit 1
+          echo "::error::container não respondeu em /saude"
+          docker logs t
+          exit 1
 
   terraform:
     name: Terraform
