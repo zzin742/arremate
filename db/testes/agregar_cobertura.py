@@ -17,12 +17,26 @@ Duas coisas que a média de porcentagens esconde, e que esta conta não:
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
 
 
-EH_TESTE = re.compile(r"(^|/)tests?/|\.test\.|_test\.py$|^test_")
+EH_TESTE = re.compile(r"(^|/)tests?/|\.test\.|_test\.py$|(^|/)test_")
+
+
+def normalizar(caminho: str) -> str:
+    """Caminho canônico, relativo à raiz do repositório.
+
+    O lcov do AUTH cita o módulo compartilhado como
+    `services/auth/../../packages/shared/src/banco.js`. Sem resolver o
+    `..`, o mesmo arquivo entra uma vez por serviço que o importa — oito
+    cópias de `banco.js` no denominador, cada uma com as suas 83 linhas.
+    Com sete serviços importando o pacote, isso sozinho respondia por
+    mais de mil linhas fantasma.
+    """
+    return os.path.normpath(caminho).replace(os.sep, "/")
 
 
 def ler_lcov(arquivo: Path) -> dict[str, tuple[int, int]]:
@@ -33,7 +47,7 @@ def ler_lcov(arquivo: Path) -> dict[str, tuple[int, int]]:
 
     for linha in arquivo.read_text().splitlines():
         if linha.startswith("SF:"):
-            atual = linha[3:].strip()
+            atual = normalizar(linha[3:].strip())
             cobertas = executaveis = 0
         elif linha.startswith("DA:") and atual:
             _, _, resto = linha.partition(":")
@@ -92,15 +106,27 @@ def main() -> int:
                 medidos[caminho] = nums
 
     # arquivos de código que NENHUM relatório mencionou
-    nomes_medidos = {Path(c).name for c in medidos}
+    #
+    # A comparação é pelo caminho inteiro, não pelo nome do arquivo.
+    # Comparar por nome fazia `services/cat/src/db.js` passar por medido
+    # porque existe um `db.js` em auth — sete arquivos escapando do
+    # denominador por homonímia.
     sem_teste: list[tuple[str, int]] = []
     for padrao in ("services/*/src/**/*.js", "packages/*/src/**/*.js", "services/mid/src/**/*.py"):
         for arq in raiz.glob(padrao):
-            if arq.name in nomes_medidos:
+            relativo = normalizar(str(arq.relative_to(raiz)))
+            if relativo in medidos:
+                continue
+            # O próprio arquivo de teste não é código do produto. O
+            # `ler_lcov` já o descarta do relatório; sem descartar aqui
+            # também, ele voltava pela porta dos fundos — como arquivo
+            # "sem teste", com todas as linhas contando como não
+            # cobertas.
+            if EH_TESTE.search(relativo):
                 continue
             n = contar_linhas_executaveis(arq)
             if n:
-                sem_teste.append((str(arq.relative_to(raiz)), n))
+                sem_teste.append((relativo, n))
 
     cobertas = sum(c for c, _ in medidos.values())
     executaveis = sum(e for _, e in medidos.values()) + sum(n for _, n in sem_teste)

@@ -128,6 +128,39 @@ jobs:
             -var="usar_cloudfront=false" \
             -var="imagem_tag=$GITHUB_SHA"
 
+      - name: Aplicar as migrations
+        if: steps.ambiente.outputs.no_ar == 'sim'
+        # Tarefa avulsa, depois do apply porque é ele quem registra a
+        # definição dela com a imagem nova. `run-task` devolve sucesso
+        # quando o ECS **aceita** a tarefa, não quando ela termina bem —
+        # sem esperar o código de saída, uma migration que falhou
+        # passaria por implantação bem-sucedida.
+        run: |
+          set -euo pipefail
+          cd infra/ambientes/dev/efemera
+          rede=$(terraform output -json migrador)
+          cd - > /dev/null
+
+          subredes=$(echo "$rede" | jq -r '.subredes | join(",")')
+          seguranca=$(echo "$rede" | jq -r '.seguranca')
+          tarefa=$(echo "$rede" | jq -r '.tarefa')
+
+          arn=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE \
+            --task-definition "$tarefa" \
+            --network-configuration "awsvpcConfiguration={subnets=[$subredes],securityGroups=[$seguranca],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "tarefa $arn"
+
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$arn"
+
+          codigo=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$arn" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          echo "saiu com $codigo"
+          if [ "$codigo" != "0" ]; then
+            echo "::error::migrations falharam — veja /ecs/$CLUSTER/migrador no CloudWatch"
+            exit 1
+          fi
+
       - name: Provar que respondeu pelo ALB
         if: steps.ambiente.outputs.no_ar == 'sim'
         # O passo que importa. O apply termina quando o ECS diz que o
@@ -151,4 +184,23 @@ jobs:
               falhou=1
             fi
           done
+
+          # O /saude não abre conexão com o banco: na estreia ele
+          # respondia 200 enquanto toda rota de verdade devolvia
+          # `erro_interno`, porque o RDS recusava a conexão em claro.
+          # Uma consulta que chega ao banco é o que separa "o processo
+          # subiu" de "o sistema funciona".
+          #
+          # Leilão inexistente serve bem: 404 é a resposta certa e não
+          # escreve nada. Banco fora daria 500.
+          inexistente=00000000-0000-0000-0000-000000000000
+          codigo=$(curl -s -o /tmp/r.json -w '%{http_code}' --max-time 20 \
+                     "http://$alb/api/lei/leiloes/$inexistente" || true)
+          if [ "$codigo" = "404" ]; then
+            echo "ok   consulta ao banco respondeu 404 para leilão inexistente"
+          else
+            echo "::error::consulta ao banco devolveu $codigo: $(head -c 200 /tmp/r.json)"
+            falhou=1
+          fi
+
           exit $falhou

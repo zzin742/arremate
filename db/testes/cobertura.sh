@@ -29,9 +29,17 @@ for dir in "$RAIZ"/services/*/ "$RAIZ"/packages/*/; do
       >/dev/null 2>&1) || true     # teste que falha é problema do job de testes
 
   if [ -s "$SAIDA/$nome.lcov" ]; then
-    # o lcov traz caminho relativo ao serviço; prefixa para o agregador
-    # distinguir src/db.js de auth e de lei
-    sed "s|^SF:|SF:services-ou-pacote/$nome/|" "$SAIDA/$nome.lcov" > "$SAIDA/$nome.ajustado.lcov"
+    # O lcov traz caminho relativo ao diretório do serviço. Prefixar com
+    # o caminho REAL dele (services/auth, packages/shared) faz duas
+    # coisas que um rótulo inventado não fazia:
+    #
+    #  - distingue `src/db.js` de auth e de lei, que é o motivo original;
+    #  - deixa o caminho do arquivo compartilhado resolver sozinho. O
+    #    lcov do auth cita `../../packages/shared/src/banco.js`; com o
+    #    prefixo certo isso normaliza para o mesmo caminho que o lcov do
+    #    lei produz, e o agregador conta o arquivo UMA vez.
+    relativo="${dir#$RAIZ/}"
+    sed "s|^SF:|SF:${relativo}|" "$SAIDA/$nome.lcov" > "$SAIDA/$nome.ajustado.lcov"
     echo "    $nome"
   fi
 done
@@ -42,8 +50,17 @@ if [ -x "$RAIZ/services/mid/.venv/bin/python" ]; then
   "$PY" -m pip install -q coverage >/dev/null 2>&1 || true
   (cd "$RAIZ/services/mid" \
     && "$PY" -m coverage run -m pytest -q >/dev/null 2>&1 \
-    && "$PY" -m coverage lcov -o "$SAIDA/mid.ajustado.lcov" >/dev/null 2>&1) || true
-  [ -s "$SAIDA/mid.ajustado.lcov" ] && echo "    mid"
+    && "$PY" -m coverage lcov -o "$SAIDA/mid.bruto.lcov" >/dev/null 2>&1) || true
+
+  if [ -s "$SAIDA/mid.bruto.lcov" ]; then
+    # O mesmo prefixo dos serviços Node, pelo mesmo motivo. O coverage
+    # emite `src/conversao.py`, relativo ao diretório do worker; sem o
+    # prefixo esse caminho nunca bate com `services/mid/src/conversao.py`
+    # da varredura, e o arquivo era contado DUAS vezes — uma como medido
+    # e outra como "sem teste", com todas as linhas zeradas.
+    sed "s|^SF:|SF:services/mid/|" "$SAIDA/mid.bruto.lcov" > "$SAIDA/mid.ajustado.lcov"
+    echo "    mid"
+  fi
 fi
 
 echo "==> agregando"
