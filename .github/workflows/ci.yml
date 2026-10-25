@@ -56,6 +56,40 @@ jobs:
           docker logs prova-${{ matrix.servico }}
           exit 1
 
+  midia:
+    name: Worker de mídia (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install pytest
+      - name: Testes
+        run: python -m pytest -q
+        working-directory: services/mid
+
+      - name: Construir a imagem
+        run: docker build -f services/mid/Dockerfile -t arremate/mid:ci .
+
+      - name: Provar que o FFmpeg converte DENTRO da imagem
+        # A imagem é a única do projeto em Python e a única que depende
+        # de um binário externo. Build que passa não prova que o FFmpeg
+        # está lá nem que tem os codecs.
+        run: |
+          docker run --rm arremate/mid:ci sh -c '
+            ffmpeg -y -f lavfi -i "testsrc=duration=1:size=320x240:rate=10" \
+              -pix_fmt yuv420p /tmp/e.mp4 2>/dev/null
+            python - <<PY
+          import sys; sys.path.insert(0,"/app/src")
+          from pathlib import Path
+          from conversao import converter_video
+          converter_video(Path("/tmp/e.mp4"), Path("/tmp/s.mp4"), Path("/tmp/m.jpg"))
+          assert Path("/tmp/s.mp4").stat().st_size > 0
+          assert Path("/tmp/m.jpg").stat().st_size > 0
+          print("converteu dentro do container")
+          PY'
+
   terraform:
     name: Terraform
     runs-on: ubuntu-latest

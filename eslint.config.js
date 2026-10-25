@@ -46,5 +46,5 @@ export default [
       'react/jsx-uses-react': 'error',
     },
   },
-  { ignores: ['node_modules/**', '**/dist/**', 'coverage/**'] },
+  { ignores: ['node_modules/**', '**/dist/**', 'coverage/**', '**/.venv/**'] },
 ];
