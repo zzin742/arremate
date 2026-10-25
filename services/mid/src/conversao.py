@@ -86,17 +86,35 @@ def converter_video(origem: Path, destino: Path, miniatura: Path | None = None) 
         str(destino),
     ])
 
+    segundos = duracao(origem)
+
     chave_min = None
     if miniatura is not None:
         miniatura.parent.mkdir(parents=True, exist_ok=True)
         _rodar([
             "ffmpeg", "-y", "-i", str(origem),
-            "-ss", "00:00:01", "-vframes", "1",
+            "-ss", _instante_da_miniatura(segundos), "-vframes", "1",
             "-vf", "scale=400:-2", str(miniatura),
         ])
         chave_min = str(miniatura)
 
-    return Resultado(str(destino), chave_min, duracao(origem))
+    return Resultado(str(destino), chave_min, segundos)
+
+
+def _instante_da_miniatura(segundos: float | None) -> str:
+    """Posição segura para extrair o quadro da miniatura.
+
+    Fixar em 1 segundo quebra em vídeo curto: o FFmpeg busca além do fim,
+    não acha quadro e sai com erro. O CI pegou isso com um vídeo de 1 s, e
+    o mesmo aconteceria em produção com qualquer clipe curto.
+
+    Um décimo da duração evita tanto o fim quanto o primeiro quadro, que
+    costuma ser preto. Sem duração conhecida, fica no começo — um quadro
+    ruim é melhor que nenhum.
+    """
+    if segundos is None or segundos <= 0:
+        return "00:00:00"
+    return f"{min(segundos * 0.1, 3.0):.2f}"
 
 
 def converter_foto(origem: Path, destino: Path) -> Resultado:

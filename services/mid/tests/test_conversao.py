@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from conversao import (  # noqa: E402
-    ArquivoInvalido, ConversaoFalhou,
+    ArquivoInvalido, ConversaoFalhou, _instante_da_miniatura,
     chave_de_miniatura, chave_de_saida, converter_foto, converter_video,
 )
 from worker import processar  # noqa: E402
@@ -110,6 +110,37 @@ def test_ffmpeg_ausente_e_falha_temporaria(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", sem_ffmpeg)
     with pytest.raises(ConversaoFalhou):
         converter_foto(tmp_path / "x.jpg", tmp_path / "y.jpg")
+
+
+# ── posição da miniatura ─────────────────────────────────────────────
+
+def test_instante_nunca_cai_no_fim_do_video():
+    """Fixar em 1 segundo quebrava em vídeo curto: o FFmpeg buscava além
+    do fim e saía com erro. O CI pegou com um clipe de 1 s."""
+    assert float(_instante_da_miniatura(1.0)) < 1.0
+    assert float(_instante_da_miniatura(0.5)) < 0.5
+    assert float(_instante_da_miniatura(20.0)) <= 3.0, "não adianta ir longe demais"
+
+
+def test_instante_sem_duracao_conhecida_fica_no_comeco():
+    """Um quadro ruim é melhor que nenhum."""
+    assert _instante_da_miniatura(None) == "00:00:00"
+    assert _instante_da_miniatura(0) == "00:00:00"
+
+
+@precisa_ffmpeg
+def test_gera_miniatura_de_video_de_um_segundo(tmp_path: Path):
+    """O caso exato que quebrou no CI."""
+    curto = tmp_path / "curto.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=320x240:rate=10",
+         "-pix_fmt", "yuv420p", str(curto)],
+        capture_output=True, check=True,
+    )
+
+    mini = tmp_path / "m.jpg"
+    converter_video(curto, tmp_path / "s.mp4", mini)
+    assert mini.exists() and mini.stat().st_size > 0
 
 
 # ── worker ───────────────────────────────────────────────────────────
