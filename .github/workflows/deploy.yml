@@ -44,7 +44,29 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.9.8 }
 
+      - name: Existe sessão de lab aberta?
+        id: credencial
+        # O AWS Academy não dá chave permanente: a credencial vem de uma
+        # sessão do lab, dura uma tarde e é posta nos secrets pelo
+        # `scripts/credenciais-ci.sh`. Fora desse intervalo ela não
+        # existe — que é o estado normal do repositório, não uma falha.
+        #
+        # Sem este passo o `configure-aws-credentials` morre com
+        # "Could not load credentials from any providers", e todo commit
+        # feito longe do lab deixaria o Deploy vermelho por um motivo
+        # que não é problema de ninguém.
+        env:
+          CHAVE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -z "$CHAVE" ]; then
+            echo "::notice::sem credencial do Learner Lab nos secrets — nada a implantar. Para implantar: abra o lab e rode bash scripts/credenciais-ci.sh"
+            echo "tem=nao" >> "$GITHUB_OUTPUT"
+          else
+            echo "tem=sim" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.credencial.outputs.tem == 'sim'
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -53,6 +75,7 @@ jobs:
 
       - name: Conferir se a credencial do Learner Lab ainda vale
         id: conta
+        if: steps.credencial.outputs.tem == 'sim'
         # A credencial do AWS Academy é de sessão e morre junto com o lab
         # (cerca de 4 h). Expirada, cada passo seguinte falharia com um
         # erro diferente e nenhum deles diria o que fazer.
@@ -65,6 +88,7 @@ jobs:
 
       - name: O ambiente está no ar?
         id: ambiente
+        if: steps.credencial.outputs.tem == 'sim'
         # A camada efêmera vive derrubada de propósito: ela é quem gasta
         # o crédito do lab (RDS, NAT, ALB, Fargate). Cluster ausente não
         # é falha de deploy — é o estado normal entre sessões de

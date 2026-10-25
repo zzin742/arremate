@@ -19,13 +19,16 @@ const globaisNavegador = {
 export default [
   {
     // backend e scripts
-    files: ['services/**/*.js', 'packages/**/*.js', '*.js'],
+    files: ['services/**/*.js', 'packages/**/*.js', 'testes/**/*.js', 'db/**/*.js', '*.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: globaisNode },
     rules: {
       'no-undef': 'error',
       // o Express identifica middleware de erro pela aridade de 4 argumentos,
-      // então `next` precisa existir mesmo sem ser usado
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // então `next` precisa existir mesmo sem ser usado.
+      // `ignoreRestSiblings` libera o jeito padrão de montar um objeto
+      // SEM um campo — `const { senha, ...resto } = x` —, usado nos
+      // testes que mandam corpo incompleto de propósito.
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
     },
   },
   {
