@@ -3,9 +3,12 @@ import { z } from 'zod';
 import {
   verificarHabilitacao, reprocessarPendentes, emitirToken,
 } from './habilitacao.js';
-import { criarConsumidor } from '@arremate/shared';
+import { criarConsumidor, tirarPrefixo } from '@arremate/shared';
 
 export const app = express();
+// O ALB casa /api/<servico>/* e encaminha sem reescrever o caminho;
+// o prefixo sai aqui para as rotas serem as mesmas em qualquer lugar
+app.use(tirarPrefixo('hab'));
 app.use(express.json());
 
 app.get('/saude', (_req, res) => res.json({ servico: 'hab', ok: true }));

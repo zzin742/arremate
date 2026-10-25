@@ -168,8 +168,25 @@ resource "aws_lb_listener_rule" "servico" {
   }
 }
 
-# ── CloudFront: a porta única ──────────────────────────────────────────
+# ── CloudFront: a porta única, quando disponível ───────────────────────
+#
+# O desenho da ADR-011 põe o CloudFront na entrada, com S3 e ALB como
+# origens. **O AWS Academy Learner Lab não permite CloudFront** — nem
+# `ListDistributions` passa, o que significa que a política de permissão
+# do lab não inclui o serviço.
+#
+# Então a entrada é condicional:
+#
+#   usar_cloudfront = true   produção: CloudFront -> S3 e ALB
+#   usar_cloudfront = false  Learner Lab: ALB direto, sem estático
+#
+# A diferença é real e não vale esconder: sem CloudFront não há TLS
+# gerenciado na borda, nem cache do estático, e o front precisa de outro
+# destino. O que o critério de "deploy em nuvem" exige — serviços
+# rodando e alcançáveis — o ALB atende sozinho. Registrado na ADR-014.
+
 resource "aws_cloudfront_distribution" "principal" {
+  count   = var.usar_cloudfront ? 1 : 0
   enabled = true
 
   origin {
@@ -183,11 +200,10 @@ resource "aws_cloudfront_distribution" "principal" {
     }
   }
 
-  # O estático vive no bucket de mídia, prefixo site/
   origin {
     domain_name              = data.terraform_remote_state.persistente.outputs.bucket_midia_dominio
     origin_id                = "estatico"
-    origin_access_control_id = aws_cloudfront_origin_access_control.estatico.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.estatico[0].id
     origin_path              = "/site"
   }
 
@@ -196,7 +212,7 @@ resource "aws_cloudfront_distribution" "principal" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
-    cache_policy_id        = data.aws_cloudfront_cache_policy.otimizado.id
+    cache_policy_id        = data.aws_cloudfront_cache_policy.otimizado[0].id
   }
 
   ordered_cache_behavior {
@@ -207,8 +223,8 @@ resource "aws_cloudfront_distribution" "principal" {
     cached_methods         = ["GET", "HEAD"]
     # Sem cache nas rotas dinâmicas: servir lance velho seria pior que
     # não ter cache nenhum.
-    cache_policy_id          = data.aws_cloudfront_cache_policy.sem_cache.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.tudo_menos_host.id
+    cache_policy_id          = data.aws_cloudfront_cache_policy.sem_cache[0].id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.tudo_menos_host[0].id
   }
 
   restrictions {
@@ -221,6 +237,7 @@ resource "aws_cloudfront_distribution" "principal" {
 }
 
 resource "aws_cloudfront_origin_access_control" "estatico" {
+  count                             = var.usar_cloudfront ? 1 : 0
   name                              = "${local.nome}-estatico"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
@@ -228,13 +245,16 @@ resource "aws_cloudfront_origin_access_control" "estatico" {
 }
 
 data "aws_cloudfront_cache_policy" "otimizado" {
-  name = "Managed-CachingOptimized"
+  count = var.usar_cloudfront ? 1 : 0
+  name  = "Managed-CachingOptimized"
 }
 
 data "aws_cloudfront_cache_policy" "sem_cache" {
-  name = "Managed-CachingDisabled"
+  count = var.usar_cloudfront ? 1 : 0
+  name  = "Managed-CachingDisabled"
 }
 
 data "aws_cloudfront_origin_request_policy" "tudo_menos_host" {
-  name = "Managed-AllViewerExceptHostHeader"
+  count = var.usar_cloudfront ? 1 : 0
+  name  = "Managed-AllViewerExceptHostHeader"
 }

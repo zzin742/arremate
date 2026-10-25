@@ -5,10 +5,13 @@ import {
   registrarConversao, ErroDeCatalogo,
 } from './catalogo.js';
 import { criarS3 } from './s3.js';
-import { criarConsumidor } from '@arremate/shared';
+import { criarConsumidor, tirarPrefixo } from '@arremate/shared';
 
 const s3 = criarS3();
 export const app = express();
+// O ALB casa /api/<servico>/* e encaminha sem reescrever o caminho;
+// o prefixo sai aqui para as rotas serem as mesmas em qualquer lugar
+app.use(tirarPrefixo('cat'));
 app.use(express.json());
 
 app.get('/saude', (_req, res) => res.json({ servico: 'cat', ok: true }));

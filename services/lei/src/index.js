@@ -2,9 +2,13 @@ import express from 'express';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { registrarLance, abrirLeilao, consultarLeilao, LanceRecusado } from './lances.js';
+import { tirarPrefixo } from '@arremate/shared';
 
 const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
 export const app = express();
+// O ALB casa /api/<servico>/* e encaminha sem reescrever o caminho;
+// o prefixo sai aqui para as rotas serem as mesmas em qualquer lugar
+app.use(tirarPrefixo('lei'));
 app.use(express.json());
 
 // O frontend roda em outra porta (5173), então o navegador trata como

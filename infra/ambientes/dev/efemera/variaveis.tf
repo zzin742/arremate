@@ -39,3 +39,14 @@ variable "bucket_state" {
   type        = string
   description = "Bucket criado pelo bootstrap; vem do -backend-config no init"
 }
+
+variable "usar_cloudfront" {
+  type        = bool
+  default     = true
+  description = <<-TXT
+    false quando a conta nao permite CloudFront. O AWS Academy Learner
+    Lab e esse caso: nem ListDistributions passa. Com false, o ALB e a
+    entrada direta e o frontend estatico fica sem destino na nuvem -
+    diferenca registrada na ADR-014.
+  TXT
+}

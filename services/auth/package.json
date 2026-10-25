@@ -9,6 +9,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@arremate/shared": "*",
     "bcryptjs": "2.4.3",
     "express": "4.21.2",
     "jsonwebtoken": "9.0.2",

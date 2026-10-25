@@ -1,0 +1,154 @@
+name: Deploy
+
+# Entrega contínua para o ambiente dev na AWS.
+#
+# Dispara por `workflow_run` depois do CI, e não por `push`: assim o que
+# vai para a AWS é sempre um commit cujos testes, cobertura e constraints
+# passaram. Com dois workflows em `push` eles correriam em paralelo e o
+# deploy poderia terminar antes de o teste reprovar.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Mesmo grupo do CI: apply, destroy e deploy mexem no mesmo state e no
+# mesmo cluster, e não podem se cruzar.
+concurrency:
+  group: arremate-dev-infra
+  cancel-in-progress: false
+
+env:
+  REGIAO: us-east-1
+  CLUSTER: arremate-dev
+
+jobs:
+  implantar:
+    name: Imagens para o ECR e implantação no ECS
+    runs-on: ubuntu-latest
+    # CI vermelho não implanta. O `workflow_dispatch` passa direto porque
+    # ali a decisão é de quem clicou.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # No gatilho `workflow_run`, o checkout padrão traz a ponta da
+          # branch, não o commit que o CI aprovou. Se alguém empurrar
+          # durante o deploy, iria para a AWS código que ninguém testou.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Conferir se a credencial do Learner Lab ainda vale
+        id: conta
+        # A credencial do AWS Academy é de sessão e morre junto com o lab
+        # (cerca de 4 h). Expirada, cada passo seguinte falharia com um
+        # erro diferente e nenhum deles diria o que fazer.
+        run: |
+          if ! aws sts get-caller-identity > /dev/null 2>&1; then
+            echo "::error::credencial da AWS expirada ou ausente. Abra o Learner Lab e rode: bash scripts/credenciais-ci.sh"
+            exit 1
+          fi
+          echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: O ambiente está no ar?
+        id: ambiente
+        # A camada efêmera vive derrubada de propósito: ela é quem gasta
+        # o crédito do lab (RDS, NAT, ALB, Fargate). Cluster ausente não
+        # é falha de deploy — é o estado normal entre sessões de
+        # trabalho, e sair daqui é o que impede o deploy de **subir** uma
+        # camada efêmera inteira sozinho, de madrugada, por causa de um
+        # merge.
+        run: |
+          if aws ecs describe-clusters --clusters "$CLUSTER" \
+               --query 'clusters[0].status' --output text 2>/dev/null | grep -q ACTIVE; then
+            echo "no_ar=sim" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::cluster $CLUSTER não está no ar — nada a implantar"
+            echo "no_ar=nao" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Construir e enviar as imagens
+        if: steps.ambiente.outputs.no_ar == 'sim'
+        # Tag do SHA, nunca `latest`: os repositórios do ECR são
+        # IMMUTABLE (persistente/main.tf), então `latest` recusa o
+        # segundo push e o deploy ficaria preso na primeira imagem para
+        # sempre. A tag imutável também é o que faz `terraform plan`
+        # mostrar a troca de versão — com `latest` o plano fica vazio e
+        # nada indica o que subiu.
+        #
+        # `--platform linux/amd64` explícito: o Fargate é amd64 e quem
+        # constrói na mão usa um Mac ARM. Arquitetura errada sobe sem
+        # reclamar e só quebra na task, com "exec format error".
+        run: |
+          set -euo pipefail
+          reg="${{ steps.conta.outputs.id }}.dkr.ecr.$REGIAO.amazonaws.com"
+          aws ecr get-login-password --region "$REGIAO" \
+            | docker login --username AWS --password-stdin "$reg"
+
+          for s in auth hab lei; do
+            echo "::group::$s"
+            docker build --platform linux/amd64 --build-arg SERVICO="$s" \
+              -f "services/$s/Dockerfile" \
+              -t "$reg/arremate-dev/$s:$GITHUB_SHA" .
+            docker push "$reg/arremate-dev/$s:$GITHUB_SHA"
+            echo "::endgroup::"
+          done
+
+      - name: Apontar o Terraform para as imagens novas
+        if: steps.ambiente.outputs.no_ar == 'sim'
+        # O deploy passa pelo Terraform, e não por `aws ecs
+        # update-service`, porque a task definition é dele: registrar uma
+        # revisão por fora faria o próximo apply desfazer o deploy sem
+        # avisar.
+        #
+        # As três variáveis vão **todas** em cada apply. `-var` não se
+        # herda entre execuções: omitir uma aqui faria o Terraform voltar
+        # ao default dela — `usar_cloudfront` voltaria a true e o plano
+        # tentaria criar uma distribuição que esta conta não permite.
+        run: |
+          set -euo pipefail
+          cd infra/ambientes/dev/efemera
+          terraform init -input=false \
+            -backend-config="bucket=arremate-tfstate-${{ steps.conta.outputs.id }}"
+          terraform apply -auto-approve -input=false \
+            -var="bucket_state=arremate-tfstate-${{ steps.conta.outputs.id }}" \
+            -var="usar_cloudfront=false" \
+            -var="imagem_tag=$GITHUB_SHA"
+
+      - name: Provar que respondeu pelo ALB
+        if: steps.ambiente.outputs.no_ar == 'sim'
+        # O passo que importa. O apply termina quando o ECS diz que o
+        # serviço está estável, e estável só compara contagem de tasks
+        # desejadas e rodando — ele dá verde com o serviço no ar e
+        # devolvendo 404 em toda rota, que foi exatamente o que aconteceu
+        # na primeira subida: o ALB casa `/api/<servico>/*` e encaminha
+        # sem reescrever o caminho, e o Express só conhecia `/saude`.
+        # Conferir pela porta de entrada de verdade é o que pega isso.
+        run: |
+          set -euo pipefail
+          alb=$(aws elbv2 describe-load-balancers --names "$CLUSTER-alb" \
+                  --query 'LoadBalancers[0].DNSName' --output text)
+          falhou=0
+          for s in auth hab lei; do
+            resposta=$(curl -s --max-time 20 "http://$alb/api/$s/saude" || true)
+            if echo "$resposta" | grep -q '"ok":true'; then
+              echo "ok   /api/$s/saude  ->  $resposta"
+            else
+              echo "::error::/api/$s/saude não respondeu saúde: ${resposta:0:200}"
+              falhou=1
+            fi
+          done
+          exit $falhou

@@ -49,5 +49,7 @@ data "aws_iam_role" "lab" {
 }
 
 output "url_alb" { value = aws_lb.principal.dns_name }
-output "url_cloudfront" { value = aws_cloudfront_distribution.principal.domain_name }
+output "url_cloudfront" {
+  value = var.usar_cloudfront ? aws_cloudfront_distribution.principal[0].domain_name : null
+}
 output "endpoint_banco" { value = aws_db_instance.principal.endpoint }
