@@ -54,5 +54,37 @@ services:
       timeout: 5s
       retries: 20
 
+  # ── Observabilidade (RNF-021) ────────────────────────────────────────
+  #
+  # Não entram no `--wait` dos testes: o CI sobe só postgres e localstack
+  # por nome. Aqui eles existem para o desenvolvimento e para a defesa,
+  # onde o painel é o que mostra o RNF-001 sendo cumprido ou não.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    # Os serviços rodam no host, não em contêiner. `host-gateway` faz o
+    # nome `host.docker.internal` existir também no Linux — sem isso a
+    # mesma configuração só funcionaria no Docker Desktop.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/observabilidade/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    depends_on: [prometheus]
+    ports: ["3030:3000"]
+    environment:
+      # Sem login na defesa: o painel tem de abrir direto. É ambiente
+      # local, sem dado real e sem porta exposta para fora da máquina.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./infra/observabilidade/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./infra/observabilidade/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./infra/observabilidade/grafana/paineis:/etc/grafana/paineis:ro
+
 volumes:
   pgdata:
+  promdata:

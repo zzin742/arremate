@@ -1,11 +1,15 @@
 import express from 'express';
 import { registrar, daEvento, listar, marcarLida } from './notificacoes.js';
-import { criarConsumidor, tirarPrefixo } from '@arremate/shared';
+import { criarConsumidor, criarMetricas, tirarPrefixo } from '@arremate/shared';
 
 export const app = express();
 // O ALB casa /api/<servico>/* e encaminha sem reescrever o caminho;
 // o prefixo sai aqui para as rotas serem as mesmas em qualquer lugar
 app.use(tirarPrefixo('not'));
+
+const metricas = criarMetricas();
+app.use(metricas.middleware);
+app.get('/metricas', metricas.handler);
 app.use(express.json());
 
 app.get('/saude', (_req, res) => res.json({ servico: 'not', ok: true }));

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: arremate
+    type: file
+    # O painel e editavel na tela, mas o arquivo e a fonte: o Grafana
+    # recarrega daqui e sobrescreve o que foi mexido a mao. Editar na
+    # tela serve para experimentar; o que fica tem de voltar para o repo.
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/paineis

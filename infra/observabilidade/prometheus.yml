@@ -1,0 +1,44 @@
+# Raspagem das métricas dos serviços (RNF-021).
+#
+# Os serviços rodam no host (`npm start`), não em contêiner, então o
+# Prometheus os alcança por `host.docker.internal`. No compose esse nome
+# está mapeado para `host-gateway`, senão ele só existiria no Docker
+# Desktop e a mesma configuração falharia no Linux do CI.
+#
+# O rótulo `servico` é posto **aqui**, e não pela aplicação. Se os dois
+# puserem, o Prometheus mantém o do alvo e renomeia o da aplicação para
+# `exported_servico` — uma coluna a mais em toda série, repetindo o que
+# já está na outra. Vindo do alvo, ele também vale para `up`, que a
+# aplicação não tem como exportar: `up{servico="lei"} == 0` é o que
+# mede a disponibilidade do RNF-006, e é justamente quando o serviço
+# está fora que ele não exporta rótulo nenhum.
+
+global:
+  scrape_interval: 15s
+  # Abaixo de 15 s o histograma fica mais fino mas o custo de guardar
+  # sobe; acima, um pico de 20 s de lentidão pode cair entre duas
+  # raspagens e não aparecer em lugar nenhum.
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: arremate
+    metrics_path: /metricas
+    static_configs:
+      - targets: ['host.docker.internal:3001']
+        labels: { servico: auth }
+      - targets: ['host.docker.internal:3002']
+        labels: { servico: lei }
+      - targets: ['host.docker.internal:3003']
+        labels: { servico: hab }
+      - targets: ['host.docker.internal:3004']
+        labels: { servico: cau }
+      - targets: ['host.docker.internal:3005']
+        labels: { servico: vis }
+      - targets: ['host.docker.internal:3006']
+        labels: { servico: not }
+      - targets: ['host.docker.internal:3007']
+        labels: { servico: cat }
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

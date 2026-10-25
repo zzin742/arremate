@@ -14,6 +14,12 @@ RUN npm ci --omit=dev --workspace @arremate/${SERVICO} --include-workspace-root
 COPY packages/shared/ packages/shared/
 COPY services/${SERVICO}/src/ services/${SERVICO}/src/
 
+# O migrador roda como tarefa avulsa do ECS, com a imagem de
+# qualquer servico e um comando trocado. Sao 56 KB de SQL: mais
+# barato que manter uma nona imagem so para isso.
+COPY db/migrar.js db/
+COPY db/migrations/ db/migrations/
+
 # ARG só existe durante o build. Sem promover para ENV, o ${SERVICO} do
 # CMD é expandido como vazio em tempo de execução e o Node procura
 # /app/services/src/index.js — que não existe.

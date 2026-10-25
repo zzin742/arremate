@@ -41,6 +41,11 @@ resource "aws_ecs_task_definition" "servico" {
       { name = "REDIS_HOST", value = aws_elasticache_cluster.principal.cache_nodes[0].address },
       { name = "AWS_REGION", value = var.regiao },
       { name = "NODE_ENV", value = "production" },
+      # O RDS recusa conexão em claro. A recusa chega como
+      # `no pg_hba.conf entry for host ..., no encryption`, que parece
+      # erro de senha — o Postgres local, sem TLS, escondeu isso até a
+      # primeira subida (shared/banco.js).
+      { name = "PGSSL", value = "exigir" },
     ]
 
     secrets = [

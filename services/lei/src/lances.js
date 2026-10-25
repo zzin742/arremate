@@ -121,18 +121,30 @@ export async function abrirLeilao({
   if (Number(lanceInicial) <= 0 || Number(incrementoMin) <= 0) {
     throw new LanceRecusado('valores_invalidos', 'Lance inicial e incremento devem ser maiores que zero');
   }
-  if (new Date(encerraEm) <= new Date()) {
-    throw new LanceRecusado('prazo_no_passado', 'O encerramento precisa ser no futuro');
-  }
-
   try {
+    // O prazo é conferido pelo relógio do BANCO, no mesmo INSERT.
+    //
+    // Antes a conferência era `new Date(encerraEm) <= new Date()`, em
+    // JavaScript. Quem julga o vencimento do leilão, porém, é o
+    // `clock_timestamp()` lá embaixo em registrarLance — dois relógios
+    // decidindo a mesma coisa. Com o relógio da aplicação atrasado em
+    // relação ao do banco, o leilão nascia **já vencido**: a abertura
+    // devolvia 201 e nenhum lance jamais seria aceito. O desvio entre
+    // os dois foi medido em 1,7 s no Postgres em contêiner no macOS.
+    //
+    // Dentro do INSERT, e não numa consulta antes dele, para não abrir
+    // janela entre conferir e gravar.
     const { rows: [leilao] } = await pool.query(
       `INSERT INTO leilao (id_empresa, id_equipamento, descricao_equipamento,
                            lance_inicial, incremento_min, encerra_em, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'aberto')
+       SELECT $1, $2, $3, $4, $5, $6::timestamptz, 'aberto'
+        WHERE $6::timestamptz > clock_timestamp()
        RETURNING *`,
       [idEmpresa, idEquipamento, descricaoEquipamento, lanceInicial, incrementoMin, encerraEm],
     );
+    if (!leilao) {
+      throw new LanceRecusado('prazo_no_passado', 'O encerramento precisa ser no futuro');
+    }
     return leilao;
   } catch (e) {
     if (e.code === '23505') {

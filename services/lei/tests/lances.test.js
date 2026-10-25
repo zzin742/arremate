@@ -7,7 +7,23 @@ const VENDEDOR = '11111111-1111-1111-1111-111111111111';
 const compradores = (n) =>
   Array.from({ length: n }, (_, i) => `22222222-2222-2222-2222-${String(i).padStart(12, '0')}`);
 
-const daquiA = (ms) => new Date(Date.now() + ms).toISOString();
+/**
+ * Prazo medido pelo relógio do BANCO, não pelo do Node.
+ *
+ * `registrarLance` julga o vencimento com `clock_timestamp()`, isto é,
+ * com o relógio do Postgres. Marcar o prazo com `Date.now()` punha dois
+ * relógios na mesma conta, e o teste passava a medir a diferença entre
+ * eles: o Postgres em contêiner no macOS ficou 1,7 s atrasado em relação
+ * ao host, e o leilão de 300 ms "ainda estava aberto" meio segundo
+ * depois de vencer. Falhava em cerca de metade das execuções, sempre com
+ * aparência de corrida.
+ */
+async function daquiA(ms) {
+  const { rows } = await pool.query(
+    "SELECT clock_timestamp() + ($1 || ' milliseconds')::interval AS t", [ms],
+  );
+  return rows[0].t.toISOString();
+}
 
 async function leilaoAberto({ inicial = 1000, incremento = 100, duracaoMs = 60_000 } = {}) {
   return abrirLeilao({
@@ -15,7 +31,7 @@ async function leilaoAberto({ inicial = 1000, incremento = 100, duracaoMs = 60_0
     descricaoEquipamento: 'Torno mecânico 1998',
     lanceInicial: inicial,
     incrementoMin: incremento,
-    encerraEm: daquiA(duracaoMs),
+    encerraEm: await daquiA(duracaoMs),
   });
 }
 
@@ -39,6 +55,30 @@ describe('abertura de leilão (RF-011)', () => {
       () => leilaoAberto({ duracaoMs: -1000 }),
       (e) => e.codigo === 'prazo_no_passado',
     );
+  });
+
+  test('quem decide o prazo é o relógio do banco, não o da aplicação', async () => {
+    // Prazo curtíssimo, medido pelo relógio do banco. Se a abertura
+    // conferisse com `new Date()`, bastaria a aplicação estar adiantada
+    // para este leilão ser recusado como vencido — ou, no sentido
+    // contrário, para nascer aberto e já vencido, devolvendo 201 e nunca
+    // aceitando lance.
+    //
+    // Com os dois relógios iguais o teste passa dos dois jeitos; ele
+    // morde quando há desvio, que é exatamente quando o erro aparece.
+    const l = await abrirLeilao({
+      idEmpresa: VENDEDOR,
+      descricaoEquipamento: 'Prensa hidráulica',
+      lanceInicial: 1000,
+      incrementoMin: 100,
+      encerraEm: await daquiA(5_000),
+    });
+
+    assert.equal(l.status, 'aberto');
+    const lance = await registrarLance({
+      idLeilao: l.id, idEmpresa: compradores(1)[0], valor: 1000,
+    });
+    assert.ok(lance, 'leilão recém-aberto tem de aceitar lance');
   });
 });
 

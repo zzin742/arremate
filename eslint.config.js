@@ -5,7 +5,8 @@ const globaisNode = {
   URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly',
   setInterval: 'readonly', clearInterval: 'readonly',
   // globais do Node moderno, usados pela integração com a API externa
-  fetch: 'readonly', AbortSignal: 'readonly', crypto: 'readonly',
+  fetch: 'readonly', AbortSignal: 'readonly', AbortController: 'readonly',
+  crypto: 'readonly',
 };
 
 const globaisNavegador = {
