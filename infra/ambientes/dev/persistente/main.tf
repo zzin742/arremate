@@ -14,11 +14,16 @@
 terraform {
   required_version = ">= 1.6"
   required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+    aws   = { source = "hashicorp/aws", version = "~> 6.0" }
+    awscc = { source = "hashicorp/awscc", version = "~> 1.0" }
   }
 }
 
 provider "aws" {
+  region = var.regiao
+}
+
+provider "awscc" {
   region = var.regiao
 }
 
@@ -52,30 +57,33 @@ locals {
 }
 
 # ── Mídia ──────────────────────────────────────────────────────────────
-resource "aws_s3_bucket" "midia" {
-  bucket = "${local.nome}-midia"
-  lifecycle { prevent_destroy = true }
-}
+# Pelo provider `awscc`, e não `aws`, pelo mesmo motivo do bootstrap: a
+# SCP do Learner Lab nega `s3:GetBucketObjectLockConfiguration`, e o
+# recurso `aws_s3_bucket` chama essa API em toda leitura. O bucket
+# nascia e o apply quebrava logo depois. O Cloud Control não passa por
+# ali. Registrado como ADR-013.
+resource "awscc_s3_bucket" "midia" {
+  bucket_name = "${local.nome}-midia"
 
-resource "aws_s3_bucket_public_access_block" "midia" {
-  bucket                  = aws_s3_bucket.midia.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "midia" {
-  bucket = aws_s3_bucket.midia.id
-
-  rule {
-    id     = "expirar-originais"
-    status = "Enabled"
-    filter { prefix = "originais/" }
-    # o derivado em processados/ é o que a ficha exibe; guardar o original
-    # para sempre só acumula custo
-    expiration { days = 90 }
+  public_access_block_configuration = {
+    block_public_acls       = true
+    block_public_policy     = true
+    ignore_public_acls      = true
+    restrict_public_buckets = true
   }
+
+  lifecycle_configuration = {
+    rules = [{
+      id     = "expirar-originais"
+      status = "Enabled"
+      prefix = "originais/"
+      # o derivado em processados/ é o que a ficha exibe; guardar o
+      # original para sempre só acumula custo
+      expiration_in_days = 90
+    }]
+  }
+
+  lifecycle { prevent_destroy = true }
 }
 
 # ── Imagens dos serviços ───────────────────────────────────────────────
@@ -193,8 +201,8 @@ resource "aws_db_snapshot" "sessao" {
   lifecycle { prevent_destroy = true }
 }
 
-output "bucket_midia" { value = aws_s3_bucket.midia.id }
-output "bucket_midia_dominio" { value = aws_s3_bucket.midia.bucket_regional_domain_name }
+output "bucket_midia" { value = awscc_s3_bucket.midia.bucket_name }
+output "bucket_midia_dominio" { value = "${awscc_s3_bucket.midia.bucket_name}.s3.${var.regiao}.amazonaws.com" }
 output "repositorios" { value = { for k, v in aws_ecr_repository.servico : k => v.repository_url } }
 output "topicos" { value = { for k, v in aws_sns_topic.evento : k => v.arn } }
 output "filas" { value = { for k, v in aws_sqs_queue.fila : k => v.url } }
