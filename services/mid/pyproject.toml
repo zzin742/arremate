@@ -7,3 +7,9 @@ dependencies = ["boto3>=1.35", "psycopg[binary]>=3.2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# O arquivo de teste nao e codigo do produto: conta-lo infla a cobertura
+# com as proprias assercoes, que sao sempre executadas.
+source = ["src"]
+omit = ["tests/*", "*/.venv/*"]

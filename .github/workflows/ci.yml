@@ -157,3 +157,23 @@ jobs:
       - run: npm ci
       - name: Testes dos serviços
         run: npm test
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Preparar o worker de mídia para a cobertura
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m venv services/mid/.venv
+          services/mid/.venv/bin/pip install -q pytest coverage
+
+      - name: Cobertura global (RNF-020) e bloqueio (RNF-023)
+        # O script sai com 1 abaixo de 60%, e isso reprova o job — que é
+        # o que o RNF-023 pede. Gerar relatório não implementa bloqueio.
+        run: bash db/testes/cobertura.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura
+          path: coverage/
+          retention-days: 7
