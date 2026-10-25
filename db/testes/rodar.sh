@@ -32,7 +32,7 @@ EOSQL
 }
 
 echo "==> aplicando migrations pendentes"
-for banco in auth hab cat mid lei cau vis; do
+for banco in auth hab cat mid lei cau vis not; do
   db="arremate_${banco}"
   aplicar "$db" db/migrations/_comum/000_extensoes.sql
   case "$banco" in

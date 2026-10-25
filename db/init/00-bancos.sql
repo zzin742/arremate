@@ -4,7 +4,7 @@
 DO $$
 DECLARE s TEXT;
 BEGIN
-  FOREACH s IN ARRAY ARRAY['auth','hab','cat','mid','lei','cau','vis'] LOOP
+  FOREACH s IN ARRAY ARRAY['auth','hab','cat','mid','lei','cau','vis','not'] LOOP
     EXECUTE format('CREATE USER svc_%s WITH PASSWORD %L', s, 'svc_' || s);
   END LOOP;
 END $$;
@@ -16,6 +16,7 @@ CREATE DATABASE arremate_mid  OWNER svc_mid;
 CREATE DATABASE arremate_lei  OWNER svc_lei;
 CREATE DATABASE arremate_cau  OWNER svc_cau;
 CREATE DATABASE arremate_vis  OWNER svc_vis;
+CREATE DATABASE arremate_not  OWNER svc_not;
 
 -- REVOKE do público: sem isso, qualquer usuário conecta em qualquer banco
 REVOKE CONNECT ON DATABASE arremate_auth FROM PUBLIC;
@@ -25,3 +26,4 @@ REVOKE CONNECT ON DATABASE arremate_mid  FROM PUBLIC;
 REVOKE CONNECT ON DATABASE arremate_lei  FROM PUBLIC;
 REVOKE CONNECT ON DATABASE arremate_cau  FROM PUBLIC;
 REVOKE CONNECT ON DATABASE arremate_vis  FROM PUBLIC;
+REVOKE CONNECT ON DATABASE arremate_not  FROM PUBLIC;

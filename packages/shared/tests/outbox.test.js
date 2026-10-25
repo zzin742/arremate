@@ -1,9 +1,13 @@
 import { test, before, beforeEach, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { SNSClient, ListTopicsCommand } from '@aws-sdk/client-sns';
 import {
-  SQSClient, GetQueueUrlCommand, ReceiveMessageCommand, DeleteMessageCommand,
+  SNSClient, ListTopicsCommand, CreateTopicCommand,
+  SubscribeCommand, ListSubscriptionsByTopicCommand,
+} from '@aws-sdk/client-sns';
+import {
+  SQSClient, GetQueueUrlCommand, CreateQueueCommand, GetQueueAttributesCommand,
+  ReceiveMessageCommand, DeleteMessageCommand,
 } from '@aws-sdk/client-sqs';
 import { criarPublicador, idadeDaPendenciaMaisAntiga } from '../src/outbox.js';
 import { criarConsumidor } from '../src/consumidor.js';
@@ -26,7 +30,34 @@ const pool = new pg.Pool({
 let topicos = {};
 let urlFila;
 
+/**
+ * Garante tópico, fila e assinatura.
+ *
+ * O teste não pode depender do hook `ready.d` do LocalStack ter
+ * disparado: ele roda na primeira subida do container e **não** quando
+ * ele é reiniciado. Já perdi tempo caçando falha que era só isso.
+ * Criar é idempotente nas duas APIs.
+ */
+async function garantirMensageria() {
+  const { TopicArn } = await sns.send(new CreateTopicCommand({ Name: 'conta-criada' }));
+  const { QueueUrl } = await sqs.send(new CreateQueueCommand({ QueueName: 'habilitacao-verificar' }));
+  const { Attributes } = await sqs.send(new GetQueueAttributesCommand({
+    QueueUrl, AttributeNames: ['QueueArn'],
+  }));
+
+  const { Subscriptions = [] } = await sns.send(
+    new ListSubscriptionsByTopicCommand({ TopicArn }),
+  );
+  if (!Subscriptions.some((s) => s.Endpoint === Attributes.QueueArn)) {
+    await sns.send(new SubscribeCommand({
+      TopicArn, Protocol: 'sqs', Endpoint: Attributes.QueueArn,
+    }));
+  }
+  return { QueueUrl };
+}
+
 before(async () => {
+  await garantirMensageria();
   const { Topics } = await sns.send(new ListTopicsCommand({}));
   // o publicador mapeia tipo_evento -> ARN; aqui montamos esse mapa a
   // partir do que o LocalStack criou
