@@ -42,6 +42,16 @@ export async function subir(app) {
     put: (c, o) => pedir('PUT', c, o),
     delete: (c, o) => pedir('DELETE', c, o),
     options: (c, o) => pedir('OPTIONS', c, o),
-    fechar: () => new Promise((ok) => servidor.close(ok)),
+    /**
+     * Encerra sem esperar as conexões keep-alive expirarem.
+     *
+     * `server.close()` sozinho só para de ACEITAR conexão nova; as que
+     * o `fetch` deixou abertas seguram o encerramento até expirarem. O
+     * teardown fica determinístico assim, em vez de depender de tempo.
+     */
+    fechar: () => new Promise((ok) => {
+      servidor.closeAllConnections();
+      servidor.close(ok);
+    }),
   };
 }

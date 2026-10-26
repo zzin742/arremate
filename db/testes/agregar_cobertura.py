@@ -23,7 +23,9 @@ import sys
 from pathlib import Path
 
 
-EH_TESTE = re.compile(r"(^|/)tests?/|\.test\.|_test\.py$|(^|/)test_")
+# `testes/` (em portugues) e a pasta do apoio aos testes na raiz;
+# `tests/` e a de cada servico. Nenhuma das duas e codigo do produto.
+EH_TESTE = re.compile(r"(^|/)tests?/|(^|/)testes/|\.test\.|_test\.py$|(^|/)test_")
 
 
 def normalizar(caminho: str) -> str:
@@ -39,30 +41,36 @@ def normalizar(caminho: str) -> str:
     return os.path.normpath(caminho).replace(os.sep, "/")
 
 
-def ler_lcov(arquivo: Path) -> dict[str, tuple[int, int]]:
-    """{caminho: (linhas_cobertas, linhas_executaveis)}"""
-    por_arquivo: dict[str, tuple[int, int]] = {}
+def ler_lcov(arquivo: Path, acumulado: dict[str, dict[int, int]]) -> None:
+    """Acumula {caminho: {linha: vezes executada}} em `acumulado`.
+
+    Por LINHA, e não por arquivo. O mesmo `catalogo.js` aparece no
+    relatório do teste de regra e no do teste HTTP, cada um cobrindo
+    linhas diferentes; guardar só o melhor dos dois jogaria fora o que o
+    outro cobriu. A união é o número certo — é o quanto do arquivo a
+    suíte inteira executa.
+    """
     atual: str | None = None
-    cobertas = executaveis = 0
 
     for linha in arquivo.read_text().splitlines():
         if linha.startswith("SF:"):
-            atual = normalizar(linha[3:].strip())
-            cobertas = executaveis = 0
-        elif linha.startswith("DA:") and atual:
-            _, _, resto = linha.partition(":")
-            _, _, vezes = resto.partition(",")
-            executaveis += 1
-            if int(vezes) > 0:
-                cobertas += 1
-        elif linha.startswith("end_of_record") and atual:
+            caminho = normalizar(linha[3:].strip())
             # arquivo de teste nao e codigo do produto: ele e sempre
             # executado por inteiro e so serviria para inflar o numero
-            if not EH_TESTE.search(atual):
-                por_arquivo[atual] = (cobertas, executaveis)
+            atual = None if EH_TESTE.search(caminho) else caminho
+            if atual is not None:
+                acumulado.setdefault(atual, {})
+        elif linha.startswith("DA:") and atual:
+            _, _, resto = linha.partition(":")
+            numero, _, vezes = resto.partition(",")
+            n, v = int(numero), int(vezes)
+            anterior = acumulado[atual].get(n, 0)
+            if v > anterior:
+                acumulado[atual][n] = v
+            else:
+                acumulado[atual].setdefault(n, v)
+        elif linha.startswith("end_of_record"):
             atual = None
-
-    return por_arquivo
 
 
 def contar_linhas_executaveis(caminho: Path) -> int:
@@ -96,14 +104,15 @@ def contar_linhas_executaveis(caminho: Path) -> int:
 def main() -> int:
     saida, raiz, meta = Path(sys.argv[1]), Path(sys.argv[2]), float(sys.argv[3])
 
-    medidos: dict[str, tuple[int, int]] = {}
-    for lcov in saida.glob("*.ajustado.lcov"):
-        for caminho, nums in ler_lcov(lcov).items():
-            # o mesmo arquivo pode aparecer em dois relatórios (código
-            # compartilhado); fica com a melhor medição
-            anterior = medidos.get(caminho, (0, 0))
-            if nums[0] > anterior[0]:
-                medidos[caminho] = nums
+    # {caminho: {linha: vezes}}, unindo todos os relatórios
+    por_linha: dict[str, dict[int, int]] = {}
+    for lcov in sorted(saida.glob("*.ajustado.lcov")):
+        ler_lcov(lcov, por_linha)
+
+    medidos: dict[str, tuple[int, int]] = {
+        caminho: (sum(1 for v in linhas.values() if v > 0), len(linhas))
+        for caminho, linhas in por_linha.items()
+    }
 
     # arquivos de código que NENHUM relatório mencionou
     #

@@ -51,6 +51,40 @@ function tls() {
 }
 
 /** Pool do serviço. `bancoPadrao` vale quando PGDATABASE não vem no ambiente. */
+/**
+ * Limite de espera por trava.
+ *
+ * Esperar para sempre é o pior desfecho possível: não há erro, não há
+ * log, e de fora é idêntico a "ainda trabalhando". Foi assim que a
+ * medição de cobertura ficou mais de uma hora parada — um processo de
+ * teste sobreviveu ao pai segurando uma transação aberta, e o `TRUNCATE`
+ * do arquivo seguinte ficou na fila da trava indefinidamente.
+ *
+ * Com o limite, a mesma situação vira `canceling statement due to lock
+ * timeout`: um erro, com nome, no arquivo certo.
+ *
+ * Vale para o lance também, e não só para o teste. O RNF-001 dá 300 ms
+ * ao registro de lance; uma requisição presa num `FOR UPDATE` por 30 s
+ * já descumpriu o requisito muito antes — falhar é mais honesto que
+ * segurar o cliente.
+ */
+const ESPERA_POR_TRAVA_MS = Number(process.env.PG_LOCK_TIMEOUT_MS ?? 30_000);
+
+/**
+ * Limites de espera do lado do cliente.
+ *
+ * O `pg` não tem nenhum por padrão: conexão que não completa e consulta
+ * que não volta ficam penduradas indefinidamente. Um serviço assim não
+ * falha — ele para, calado, e o ECS nem reinicia, porque do lado de fora
+ * continua "no ar".
+ *
+ * Foi esse o desfecho que prendeu um processo de teste por dezenove
+ * minutos: parado em `kevent`, esperando uma conexão que o banco não
+ * tinha. Sem limite não havia erro para investigar, só silêncio.
+ */
+const ESPERA_POR_CONEXAO_MS = Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 10_000);
+const ESPERA_POR_CONSULTA_MS = Number(process.env.PG_STATEMENT_TIMEOUT_MS ?? 30_000);
+
 export function criarPool(bancoPadrao) {
   // pg puro, sem ORM, de propósito: o coração do projeto é um
   // SELECT ... FOR UPDATE, e ORM esconde exatamente o controle de
@@ -63,6 +97,11 @@ export function criarPool(bancoPadrao) {
     database: process.env.PGDATABASE ?? bancoPadrao,
     ssl: tls(),
     max: 10,
+    connectionTimeoutMillis: ESPERA_POR_CONEXAO_MS,
+    // `options` chega ao servidor na conexão; vale para toda consulta
+    // daquela sessão, sem precisar lembrar de repetir em cada query.
+    options: `-c lock_timeout=${ESPERA_POR_TRAVA_MS}`
+      + ` -c statement_timeout=${ESPERA_POR_CONSULTA_MS}`,
   });
 }
 

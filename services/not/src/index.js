@@ -33,7 +33,14 @@ app.use((erro, _req, res, _next) => {
   res.status(500).json({ codigo: 'erro_interno' });
 });
 
-if (process.env.NODE_ENV !== 'test') {
+// Não sobe servidor quando o arquivo é importado por um teste.
+//
+// `NODE_TEST_CONTEXT` é posto pelo próprio runner do Node e não depende
+// de ninguém lembrar de exportar `NODE_ENV=test`. Esquecer isso não dava
+// erro: o `app.listen` subia, o servidor escutando segurava o processo
+// vivo, e a medição de cobertura ficava parada em `kevent` até o limite
+// — sem erro, sem log, idêntica a "ainda trabalhando".
+if (process.env.NODE_ENV !== 'test' && !process.env.NODE_TEST_CONTEXT) {
   const porta = Number(process.env.PORTA ?? 3006);
   app.listen(porta, () => console.log(`not ouvindo em :${porta}`));
 
