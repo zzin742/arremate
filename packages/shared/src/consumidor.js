@@ -78,6 +78,20 @@ export function criarConsumidor({ urlFila, tratar, cliente, esperaSegundos = 5 }
       while (rodando) {
         try {
           await consumirLote();
+          // Cede o controle entre as voltas.
+          //
+          // O `await` de uma promessa que já resolveu só agenda uma
+          // microtask, e microtask não deixa o laço de eventos
+          // respirar: o `while` roda milhões de voltas sem que nenhum
+          // `setTimeout` chegue a disparar. Medido — cinco milhões de
+          // voltas e um timer de 200 ms ainda não tinha vencido.
+          //
+          // Com o long polling de 5 s isso não aparece, porque cada
+          // chamada demora. Some o atraso (fila vazia respondendo na
+          // hora, `esperaSegundos = 0`, dublê em teste) e o serviço
+          // passa a queimar um núcleo sem atender mais nada — nem o
+          // `parar()`, que depende de um timer para ser chamado.
+          await new Promise((r) => setImmediate(r));
         } catch (e) {
           console.error('consumidor:', e.message);
           await new Promise((r) => setTimeout(r, 2000));

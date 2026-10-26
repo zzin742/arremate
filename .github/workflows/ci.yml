@@ -63,7 +63,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # `--no-install-recommends` porque o ffmpeg puxa uma árvore de
+      # recomendados que nada aqui usa. Numa execução o espelho do
+      # Ubuntu arrastou e esse passo sozinho levou 48 minutos. Que o
+      # conjunto mínimo basta já está provado: é exatamente o que o
+      # Dockerfile do worker instala, e o passo abaixo converte um vídeo
+      # de verdade dentro daquela imagem.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pip install pytest
       - name: Testes
         run: python -m pytest -q
@@ -162,7 +168,7 @@ jobs:
         with: { python-version: '3.12' }
       - name: Preparar o worker de mídia para a cobertura
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
           python -m venv services/mid/.venv
           services/mid/.venv/bin/pip install -q pytest coverage
 
