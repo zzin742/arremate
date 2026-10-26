@@ -1,8 +1,10 @@
 import express from 'express';
 import { z } from 'zod';
-import jwt from 'jsonwebtoken';
 import { registrarLance, abrirLeilao, consultarLeilao, LanceRecusado } from './lances.js';
-import { criarMetricas, idadeDaPendenciaMaisAntiga, tirarPrefixo } from '@arremate/shared';
+import {
+  AUDIENCIA_SESSAO, criarMetricas, idadeDaPendenciaMaisAntiga,
+  tirarPrefixo, verificar, verificarTokenHabilitacao,
+} from '@arremate/shared';
 import { pool } from './db.js';
 
 const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
@@ -34,11 +36,48 @@ app.use((req, res, next) => {
 function exigirSessao(req, _res, next) {
   try {
     const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
-    req.empresa = jwt.verify(token, SEGREDO).sub;
+    // A audiência é o que impede o token de habilitação de passar por
+    // aqui. Os dois são assinados com o mesmo segredo e os dois trazem
+    // `sub`; sem conferir para quem o token foi emitido, pedir o de
+    // habilitação de uma empresa bastava para agir como ela.
+    req.empresa = verificar(token, SEGREDO, AUDIENCIA_SESSAO).sub;
     next();
   } catch {
     next(new LanceRecusado('nao_autenticado', 'Token ausente, inválido ou expirado'));
   }
+}
+
+/**
+ * Exige a prova de habilitação, verificada por assinatura (RF-004).
+ *
+ * Vem no cabeçalho `X-Habilitacao`, separado do de sessão: são duas
+ * afirmações diferentes — quem você é, e que você está apto. O LEI não
+ * chama o HAB; a arquitetura (§3) proíbe rede no caminho do lance, e o
+ * RNF-001 dá 300 ms para a resposta inteira.
+ *
+ * O token tem de ser da MESMA empresa da sessão. Sem essa conferência,
+ * bastaria apresentar a habilitação de uma empresa qualquer que
+ * estivesse aprovada.
+ */
+function exigirHabilitacao(req, _res, next) {
+  const token = req.headers['x-habilitacao'] ?? '';
+  const { valido, idEmpresa } = verificarTokenHabilitacao(token, SEGREDO);
+
+  if (!valido) {
+    return next(new LanceRecusado(
+      'sem_habilitacao',
+      'Habilitação ausente, vencida ou não aprovada',
+    ));
+  }
+
+  if (idEmpresa !== req.empresa) {
+    return next(new LanceRecusado(
+      'habilitacao_de_outra_empresa',
+      'O token de habilitação não é desta empresa',
+    ));
+  }
+
+  return next();
 }
 
 const esquemaLeilao = z.object({
@@ -50,7 +89,7 @@ const esquemaLeilao = z.object({
 
 app.get('/saude', (_req, res) => res.json({ servico: 'lei', ok: true }));
 
-app.post('/leiloes', exigirSessao, async (req, res, next) => {
+app.post('/leiloes', exigirSessao, exigirHabilitacao, async (req, res, next) => {
   try {
     const d = esquemaLeilao.parse(req.body);
     res.status(201).json(await abrirLeilao({ idEmpresa: req.empresa, ...d }));
@@ -65,7 +104,7 @@ app.get('/leiloes/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-app.post('/leiloes/:id/lances', exigirSessao, async (req, res, next) => {
+app.post('/leiloes/:id/lances', exigirSessao, exigirHabilitacao, async (req, res, next) => {
   try {
     const { valor } = z.object({ valor: z.number().positive() }).parse(req.body);
     const lance = await registrarLance({
@@ -81,8 +120,15 @@ app.use((erro, _req, res, _next) => {
   }
   if (erro instanceof LanceRecusado) {
     // 409: o pedido estava bem formado, mas o estado do leilão o recusa
+    // 403 para habilitação e caução porque o RF-012 pede esse código
+    // com todas as letras. Não é capricho: 401 diria "identifique-se"
+    // a quem já está identificado, e 409 diria que o estado do leilão
+    // recusou, quando o que falta é credencial de quem pede.
+    const SEM_PERMISSAO = ['sem_habilitacao', 'habilitacao_de_outra_empresa', 'sem_caucao'];
+
     const status = erro.codigo === 'nao_autenticado' ? 401
-                 : erro.codigo === 'leilao_inexistente' ? 404 : 409;
+                 : erro.codigo === 'leilao_inexistente' ? 404
+                 : SEM_PERMISSAO.includes(erro.codigo) ? 403 : 409;
     return res.status(status).json({ codigo: erro.codigo, mensagem: erro.message });
   }
   console.error(erro);

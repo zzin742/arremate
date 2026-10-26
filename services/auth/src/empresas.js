@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { AUDIENCIA_SESSAO, assinar, verificar } from '@arremate/shared';
 import { emTransacao, pool } from './db.js';
 import { cnpjValido, soDigitos } from './cnpj.js';
 
@@ -85,18 +85,20 @@ export async function autenticar({ email, senha }) {
     throw new ErroDeRegra('credenciais_invalidas', 'E-mail ou senha incorretos', 401);
   }
 
-  const token = jwt.sign(
-    { sub: empresa.id, cnpj: empresa.cnpj },
-    SEGREDO,
-    { expiresIn: EXPIRA_EM },
-  );
+  // `aud` separa este token do de habilitação, que é assinado com o
+  // mesmo segredo e também traz `sub`. Sem a separação, um valia pelo
+  // outro — e a rota que emite o de habilitação não pedia autenticação.
+  const token = assinar({ sub: empresa.id, cnpj: empresa.cnpj }, SEGREDO, {
+    audiencia: AUDIENCIA_SESSAO,
+    expiraEm: EXPIRA_EM,
+  });
   return { token, expiraEm: EXPIRA_EM, empresa: { id: empresa.id, email: empresa.email } };
 }
 
 /** Verifica o token; devolve o conteúdo ou lança 401 (RF-002). */
 export function verificarToken(token) {
   try {
-    return jwt.verify(token, SEGREDO);
+    return verificar(token, SEGREDO, AUDIENCIA_SESSAO);
   } catch {
     throw new ErroDeRegra('token_invalido', 'Token ausente, inválido ou expirado', 401);
   }

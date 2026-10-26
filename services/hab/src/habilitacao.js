@@ -1,4 +1,8 @@
-import jwt from 'jsonwebtoken';
+import {
+  assinarTokenHabilitacao,
+  verificarTokenHabilitacao as conferirHabilitacao,
+  VALIDADE_HABILITACAO,
+} from '@arremate/shared';
 import { pool } from './db.js';
 import { consultarCnpj, ApiExternaIndisponivel } from './brasilapi.js';
 
@@ -12,7 +16,7 @@ const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
  * demais obrigaria o LEI a consultar o HAB com frequência, o que colocaria
  * chamada de rede no caminho do lance.
  */
-const VALIDADE = '15m';
+const VALIDADE = VALIDADE_HABILITACAO;
 
 /**
  * Processa o evento `conta_criada`: consulta o CNPJ e registra a habilitação.
@@ -95,17 +99,12 @@ export async function emitirToken(idEmpresa) {
 
   return {
     emitido: true,
-    token: jwt.sign({ sub: idEmpresa, hab: 'aprovada' }, SEGREDO, { expiresIn: VALIDADE }),
+    token: assinarTokenHabilitacao(idEmpresa, SEGREDO),
     validade: VALIDADE,
   };
 }
 
 /** Verificação local, usada pelo LEI. Nenhuma chamada de rede. */
 export function verificarTokenHabilitacao(token) {
-  try {
-    const c = jwt.verify(token, SEGREDO);
-    return { valido: c.hab === 'aprovada', idEmpresa: c.sub };
-  } catch {
-    return { valido: false, idEmpresa: null };
-  }
+  return conferirHabilitacao(token, SEGREDO);
 }

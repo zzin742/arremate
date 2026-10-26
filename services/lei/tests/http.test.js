@@ -15,6 +15,7 @@ import { test, before, beforeEach, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 
+import { AUDIENCIA_SESSAO, assinarTokenHabilitacao, assinar } from '@arremate/shared';
 import { subir } from '../../../testes/servidor.js';
 import { app } from '../src/index.js';
 import { pool } from '../src/db.js';
@@ -24,7 +25,19 @@ const VENDEDOR = '11111111-1111-1111-1111-111111111111';
 const COMPRADOR = '22222222-2222-2222-2222-222222222222';
 const OUTRO = '33333333-3333-3333-3333-333333333333';
 
-const token = (sub) => jwt.sign({ sub }, SEGREDO);
+/**
+ * Credenciais de uma empresa: sessão e habilitação.
+ *
+ * São duas afirmações diferentes — quem você é, e que você está apto —
+ * e viajam separadas. Antes o LEI aceitava qualquer JWT com a
+ * assinatura certa, e por isso o token de habilitação valia como
+ * sessão; hoje cada um tem a sua audiência.
+ */
+const token = (sub) => assinar({ sub }, SEGREDO, {
+  audiencia: AUDIENCIA_SESSAO, expiraEm: '1h',
+});
+
+const habilitada = (sub) => ({ 'X-Habilitacao': assinarTokenHabilitacao(sub, SEGREDO) });
 
 let s;
 
@@ -51,7 +64,7 @@ after(async () => { await s.fechar(); await pool.end(); });
 
 async function leilao(extra = {}) {
   const r = await s.post('/leiloes', {
-    token: token(VENDEDOR),
+    token: token(VENDEDOR), cabecalhos: habilitada(VENDEDOR),
     corpo: {
       descricaoEquipamento: 'Torno mecânico 1998',
       lanceInicial: 1000,
@@ -81,7 +94,7 @@ describe('saúde e métricas', () => {
     // uma série por leilão derrubaria o Prometheus num leilão
     // movimentado; é o motivo de o rótulo sair de `req.route`
     const { json: l } = await leilao();
-    await s.post(`/leiloes/${l.id}/lances`, { token: token(COMPRADOR), corpo: { valor: 1000 } });
+    await s.post(`/leiloes/${l.id}/lances`, { token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: 1000 } });
 
     const r = await s.get('/metricas');
     assert.match(r.texto, /rota="\/leiloes\/:id\/lances"/);
@@ -124,7 +137,7 @@ describe('abertura de leilão (RF-011)', () => {
     // mandar `idEmpresa` no corpo não pode sobrepor o do token: seria
     // abrir leilão em nome de terceiro
     const r = await s.post('/leiloes', {
-      token: token(VENDEDOR),
+      token: token(VENDEDOR), cabecalhos: habilitada(VENDEDOR),
       corpo: {
         idEmpresa: OUTRO,
         descricaoEquipamento: 'Torno', lanceInicial: 1000,
@@ -182,7 +195,7 @@ describe('registro de lance (RF-013)', () => {
   test('lance válido é 201', async () => {
     const { json: l } = await leilao();
     const r = await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(COMPRADOR), corpo: { valor: 1000 },
+      token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: 1000 },
     });
     assert.equal(r.status, 201);
     assert.equal(r.json.sequencia, 1);
@@ -198,7 +211,7 @@ describe('registro de lance (RF-013)', () => {
     const { json: l } = await leilao();
     for (const [i, valor] of [1000, 1100, 1200].entries()) {
       const r = await s.post(`/leiloes/${l.id}/lances`, {
-        token: token(COMPRADOR), corpo: { valor },
+        token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor },
       });
       assert.equal(r.json.sequencia, i + 1);
     }
@@ -207,7 +220,7 @@ describe('registro de lance (RF-013)', () => {
   test('vendedor no próprio leilão é recusado', async () => {
     const { json: l } = await leilao();
     const r = await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(VENDEDOR), corpo: { valor: 1000 },
+      token: token(VENDEDOR), cabecalhos: habilitada(VENDEDOR), corpo: { valor: 1000 },
     });
     assert.equal(r.status, 409);
     assert.equal(r.json.codigo, 'vendedor_nao_pode_lancar');
@@ -215,10 +228,10 @@ describe('registro de lance (RF-013)', () => {
 
   test('abaixo do incremento é 409 e diz qual é o mínimo', async () => {
     const { json: l } = await leilao();
-    await s.post(`/leiloes/${l.id}/lances`, { token: token(COMPRADOR), corpo: { valor: 1000 } });
+    await s.post(`/leiloes/${l.id}/lances`, { token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: 1000 } });
 
     const r = await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(OUTRO), corpo: { valor: 1050 },
+      token: token(OUTRO), cabecalhos: habilitada(OUTRO), corpo: { valor: 1050 },
     });
     assert.equal(r.status, 409);
     assert.equal(r.json.codigo, 'lance_abaixo_do_minimo');
@@ -230,7 +243,7 @@ describe('registro de lance (RF-013)', () => {
     // painel de erros acusar problema onde a regra está funcionando
     const { json: l } = await leilao();
     const r = await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(VENDEDOR), corpo: { valor: 1000 },
+      token: token(VENDEDOR), cabecalhos: habilitada(VENDEDOR), corpo: { valor: 1000 },
     });
     assert.ok(r.status < 500, `regra de negócio não pode virar 5xx, veio ${r.status}`);
   });
@@ -238,16 +251,16 @@ describe('registro de lance (RF-013)', () => {
   test('valor ausente ou não numérico é 400, não 409', async () => {
     const { json: l } = await leilao();
     assert.equal((await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(COMPRADOR), corpo: {},
+      token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: {},
     })).status, 400);
     assert.equal((await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(COMPRADOR), corpo: { valor: '1000' },
+      token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: '1000' },
     })).status, 400);
   });
 
   test('lance em leilão inexistente é 404', async () => {
     const r = await s.post('/leiloes/44444444-4444-4444-4444-444444444444/lances', {
-      token: token(COMPRADOR), corpo: { valor: 1000 },
+      token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: 1000 },
     });
     assert.equal(r.status, 404);
     assert.equal(r.json.codigo, 'leilao_inexistente');
@@ -258,9 +271,94 @@ describe('registro de lance (RF-013)', () => {
     await new Promise((ok) => setTimeout(ok, 500));
 
     const r = await s.post(`/leiloes/${l.id}/lances`, {
-      token: token(COMPRADOR), corpo: { valor: 5000 },
+      token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: 5000 },
     });
     assert.equal(r.status, 409);
     assert.equal(r.json.codigo, 'leilao_encerrado');
+  });
+});
+
+describe('credenciais: o que separa sessão de habilitação', () => {
+  test('token de HABILITAÇÃO não vale como sessão', async () => {
+    // Foi o ataque real, comprovado antes da correção: os dois tipos
+    // são assinados com o mesmo segredo e os dois trazem `sub`, e a
+    // rota que emitia o de habilitação não pedia autenticação. Pedir o
+    // token de uma empresa habilitada e abrir leilão em nome dela
+    // devolvia HTTP 201.
+    const r = await s.post('/leiloes', {
+      token: assinarTokenHabilitacao(VENDEDOR, SEGREDO),
+      corpo: {
+        descricaoEquipamento: 'Leilão de quem não fez login',
+        lanceInicial: 1000,
+        incrementoMin: 100,
+        encerraEm: await daquiA(60_000),
+      },
+    });
+
+    assert.equal(r.status, 401);
+    assert.equal(r.json.codigo, 'nao_autenticado');
+  });
+
+  test('sessão sem habilitação é 403, como o RF-012 pede', async () => {
+    // 403 e não 401: quem pede já está identificado. O que falta é a
+    // prova de que está apto.
+    const r = await s.post('/leiloes', {
+      token: token(VENDEDOR),
+      corpo: {
+        descricaoEquipamento: 'Torno sem habilitação',
+        lanceInicial: 1000,
+        incrementoMin: 100,
+        encerraEm: await daquiA(60_000),
+      },
+    });
+
+    assert.equal(r.status, 403);
+    assert.equal(r.json.codigo, 'sem_habilitacao');
+  });
+
+  test('habilitação de OUTRA empresa não serve', async () => {
+    // Sem esta conferência bastaria apresentar a habilitação de
+    // qualquer empresa aprovada — elas são emitidas de verdade.
+    const { json: l } = await leilao();
+
+    const r = await s.post(`/leiloes/${l.id}/lances`, {
+      token: token(COMPRADOR),
+      cabecalhos: habilitada(OUTRO),
+      corpo: { valor: 1000 },
+    });
+
+    assert.equal(r.status, 403);
+    assert.equal(r.json.codigo, 'habilitacao_de_outra_empresa');
+  });
+
+  test('lance sem habilitação é recusado', async () => {
+    const { json: l } = await leilao();
+
+    const r = await s.post(`/leiloes/${l.id}/lances`, {
+      token: token(COMPRADOR),
+      corpo: { valor: 1000 },
+    });
+
+    assert.equal(r.status, 403);
+    assert.equal(r.json.codigo, 'sem_habilitacao');
+  });
+
+  test('habilitação vencida é recusada como ausente', async () => {
+    // Para quem pede, token vencido e token ausente são o mesmo
+    // problema: a prova não vale.
+    const vencido = assinar({ sub: COMPRADOR, hab: 'aprovada' }, SEGREDO, {
+      audiencia: 'arremate:habilitacao',
+      expiraEm: '-1s',
+    });
+    const { json: l } = await leilao();
+
+    const r = await s.post(`/leiloes/${l.id}/lances`, {
+      token: token(COMPRADOR),
+      cabecalhos: { 'X-Habilitacao': vencido },
+      corpo: { valor: 1000 },
+    });
+
+    assert.equal(r.status, 403);
+    assert.equal(r.json.codigo, 'sem_habilitacao');
   });
 });

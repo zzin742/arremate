@@ -3,7 +3,9 @@ import { z } from 'zod';
 import {
   verificarHabilitacao, reprocessarPendentes, emitirToken,
 } from './habilitacao.js';
-import { criarConsumidor, criarMetricas, tirarPrefixo } from '@arremate/shared';
+import {
+  AUDIENCIA_SESSAO, criarConsumidor, criarMetricas, tirarPrefixo, verificar,
+} from '@arremate/shared';
 
 export const app = express();
 // O ALB casa /api/<servico>/* e encaminha sem reescrever o caminho;
@@ -17,8 +19,37 @@ app.use(express.json());
 
 app.get('/saude', (_req, res) => res.json({ servico: 'hab', ok: true }));
 
+const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
+
+/**
+ * Só a própria empresa pede o seu token.
+ *
+ * A rota entregava a credencial a quem soubesse o UUID da empresa, sem
+ * pedir nada. Com ela, abrir leilão em nome de terceiro era um `curl` —
+ * verificado, HTTP 201. Duas coisas consertam isso, e as duas são
+ * necessárias: o `aud` no token (um de habilitação não vale como
+ * sessão) e a autenticação aqui.
+ */
+function exigirDonoDaSessao(req, res, next) {
+  const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
+
+  try {
+    const sessao = verificar(token, SEGREDO, AUDIENCIA_SESSAO);
+
+    // 404, e não 403: para quem não é dono, esta empresa não existe.
+    // Um 403 confirmaria que o UUID é de uma empresa de verdade.
+    if (sessao.sub !== req.params.id) {
+      return res.status(404).json({ codigo: 'empresa_nao_encontrada' });
+    }
+
+    return next();
+  } catch {
+    return res.status(401).json({ codigo: 'nao_autenticado' });
+  }
+}
+
 /** Token que o LEI verifica por assinatura, sem chamada de rede (RF-004). */
-app.get('/empresas/:id/token', async (req, res, next) => {
+app.get('/empresas/:id/token', exigirDonoDaSessao, async (req, res, next) => {
   try {
     const r = await emitirToken(req.params.id);
     if (!r.emitido) return res.status(409).json({ codigo: r.motivo });
