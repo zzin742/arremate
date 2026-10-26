@@ -186,7 +186,7 @@ Dois detalhes que valem saber antes de mexer na configuração:
 ## Testes
 
 ```bash
-npm test          # 227 testes dos serviços (precisa do banco de pé)
+npm test          # 239 testes (precisa do banco de pé)
 npm run lint
 bash db/testes/cobertura.sh   # cobertura global pela regra do RNF-020
 ```
@@ -204,3 +204,24 @@ soma das linhas executáveis**, não média de porcentagens, com os arquivos
 sem teste nenhum dentro do denominador. Abaixo de 60% o script sai com
 erro e reprova o job, que é o que o RNF-023 pede: gerar relatório não
 implementa bloqueio.
+
+O denominador inclui o **frontend**. Ele ficou de fora dos padrões de
+varredura por um tempo, e isso fazia a conta medir só o backend: 275
+linhas de código de produto sumiam sem nada dizer, e a porcentagem subia
+de graça. Medida que escolhe o que medir não mede nada.
+
+### A lacuna conhecida
+
+`web/src/App.jsx` — 163 linhas — **não tem teste**, e aparece como 0% no
+relatório. Não é esquecimento: renderizar componente React exige DOM e
+transformação de JSX, ou seja, um segundo executor de testes (vitest ou
+equivalente) ao lado do `node --test` usado em todo o resto. A decisão de
+trazer essa peça ainda não foi tomada.
+
+A lógica que o componente consome está coberta: `web/src/api.js`, a 100%,
+inclui a tradução do erro do servidor — é o que permite a tela dizer
+"lance abaixo do mínimo" em vez de "erro 409".
+
+Deixar a lacuna contada e visível é deliberado. Ajustar o padrão de
+varredura para escondê-la aumentaria o número sem mudar nada do que o
+número deveria significar.

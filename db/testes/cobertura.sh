@@ -30,7 +30,7 @@ matar_arvore() {
 }
 
 echo "==> medindo serviços Node"
-for dir in "$RAIZ"/services/*/ "$RAIZ"/packages/*/; do
+for dir in "$RAIZ"/services/*/ "$RAIZ"/packages/*/ "$RAIZ"/web/; do
   nome="$(basename "$dir")"
   [ -f "$dir/package.json" ] || continue
   [ -d "$dir/src" ] || continue

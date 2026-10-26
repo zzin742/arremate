@@ -1,5 +1,8 @@
-const AUTH = import.meta.env.VITE_AUTH ?? 'http://localhost:3001';
-const LEI = import.meta.env.VITE_LEI ?? 'http://localhost:3002';
+// `import.meta.env` é coisa do Vite: fora dele a propriedade não
+// existe, e o acesso direto quebra na importação. O `?.` deixa este
+// módulo ser importado por um teste em Node puro, sem empacotador.
+const AUTH = import.meta.env?.VITE_AUTH ?? 'http://localhost:3001';
+const LEI = import.meta.env?.VITE_LEI ?? 'http://localhost:3002';
 
 /** Guarda o token da sessão. Em produção isso vira cookie httpOnly. */
 export const sessao = {
