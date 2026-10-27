@@ -35,11 +35,15 @@ locals {
   topicos = [
     "conta-criada", "midia-enviada", "midia-convertida",
     "lance-superado", "leilao-encerrado", "leilao-liquidar",
+    # o CAU avisa o LEI quando a caucao muda; o LEI mantem um espelho
+    # local para conferir dentro da trava do leilao, sem chamada de rede
+    "caucao-mudou",
   ]
 
   filas = [
     "habilitacao-verificar", "midia-upload-concluido", "midia-converter",
     "catalogo-atualizar-midia", "notificacao-enviar", "caucao-liquidar",
+    "leilao-espelhar-caucao",
   ]
 
   # chave = "topico|fila", para o for_each ter identificador estável que
@@ -51,6 +55,7 @@ locals {
     "lance-superado|notificacao-enviar"         = ["lance-superado", "notificacao-enviar"]
     "leilao-encerrado|notificacao-enviar"       = ["leilao-encerrado", "notificacao-enviar"]
     "leilao-liquidar|caucao-liquidar"           = ["leilao-liquidar", "caucao-liquidar"]
+    "caucao-mudou|leilao-espelhar-caucao"       = ["caucao-mudou", "leilao-espelhar-caucao"]
   }
 
   servicos = ["auth", "hab", "cat", "mid", "lei", "cau", "vis", "not", "web"]

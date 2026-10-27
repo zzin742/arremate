@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "main": "src/index.js",
-  "scripts": { "start": "node src/index.js", "test": "node --test --test-concurrency=1" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node ../../testes/um-por-arquivo.mjs"
+  },
   "dependencies": {
     "@arremate/shared": "*",
     "@aws-sdk/client-s3": "3.1150.0",

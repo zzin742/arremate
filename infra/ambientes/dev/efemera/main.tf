@@ -29,6 +29,20 @@ locals {
     hab  = { porta = 3003, cpu = 256, memoria = 512, tarefas = 1 }
     lei  = { porta = 3002, cpu = 512, memoria = 1024, tarefas = 2 }
   }
+
+  filas = data.terraform_remote_state.persistente.outputs.filas
+
+  # O que cada serviço precisa saber da mensageria. Lista vazia para
+  # quem não consome nada — `concat` com vazio não muda o ambiente.
+  ambiente_de_fila = {
+    auth = []
+    hab = [
+      { name = "FILA_HABILITACAO", value = local.filas["habilitacao-verificar"] },
+    ]
+    lei = [
+      { name = "FILA_ESPELHAR_CAUCAO", value = local.filas["leilao-espelhar-caucao"] },
+    ]
+  }
 }
 
 # A camada efêmera LÊ a persistente, nunca o contrário: se fosse o

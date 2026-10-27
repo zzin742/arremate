@@ -1,4 +1,5 @@
 import { emTransacao, pool } from './db.js';
+import { temCaucao } from './caucoes.js';
 
 export class LanceRecusado extends Error {
   constructor(codigo, mensagem) {
@@ -55,8 +56,15 @@ export async function registrarLance({ idLeilao, idEmpresa, valor }) {
       throw new LanceRecusado('vendedor_nao_pode_lancar', 'O vendedor não pode dar lance no próprio leilão');
     }
 
-    // TODO Sprint 6/7 — exigir caução ativa (RF-012). O CAU ainda não
-    // existe; quando existir, a verificação entra aqui, dentro da trava.
+    // Caução, DENTRO da trava (RF-012).
+    //
+    // Consulta local, ao espelho alimentado pelo evento do CAU. Fosse
+    // uma chamada HTTP, ela estaria segurando o lock desta linha pelo
+    // tempo da resposta alheia, e todo lance deste leilão esperaria
+    // atrás dela. Ver `caucoes.js` e a migration 005.
+    if (!await temCaucao(cx, { idLeilao, idEmpresa })) {
+      throw new LanceRecusado('sem_caucao', 'É preciso ter caução confirmada para lançar');
+    }
 
     // ── 3. qual o lance atual, e qual a próxima sequência ────────────
     // A leitura é segura porque seguramos a trava do leilão: nenhum outro

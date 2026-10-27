@@ -25,18 +25,42 @@ async function daquiA(ms) {
   return rows[0].t.toISOString();
 }
 
-async function leilaoAberto({ inicial = 1000, incremento = 100, duracaoMs = 60_000 } = {}) {
-  return abrirLeilao({
+/** Caução para quem vai lançar. A regra em si vive em `caucoes.test.js`. */
+async function darCaucao(idLeilao, empresas) {
+  await Promise.all(empresas.map((empresa, i) => pool.query(
+    `INSERT INTO caucao_ativa (id_leilao, id_empresa, id_caucao)
+     VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+    [idLeilao, empresa, `aaaaaaaa-0000-0000-0000-${String(i).padStart(12, '0')}`],
+  )));
+}
+
+/**
+ * Abre o leilão e já dá caução aos compradores do teste.
+ *
+ * A caução é condição do lance (RF-012), e sem ela todo teste daqui
+ * recusaria antes de chegar na regra que ele quer provar. A regra em
+ * si — quem tem, quem não tem, o que a tira — é exercitada em
+ * `caucoes.test.js`; aqui ela é só o cenário.
+ */
+async function leilaoAberto({
+  inicial = 1000, incremento = 100, duracaoMs = 60_000, caucionados = 60,
+} = {}) {
+  const leilao = await abrirLeilao({
     idEmpresa: VENDEDOR,
     descricaoEquipamento: 'Torno mecânico 1998',
     lanceInicial: inicial,
     incrementoMin: incremento,
     encerraEm: await daquiA(duracaoMs),
   });
+
+  await darCaucao(leilao.id, compradores(caucionados));
+  return leilao;
 }
 
 before(async () => { await pool.query('SELECT 1'); });
-beforeEach(async () => { await pool.query('TRUNCATE arremate, lance, leilao, outbox CASCADE'); });
+beforeEach(async () => {
+  await pool.query('TRUNCATE arremate, lance, leilao, outbox, caucao_ativa CASCADE');
+});
 after(async () => { await pool.end(); });
 
 describe('abertura de leilão (RF-011)', () => {
@@ -75,6 +99,11 @@ describe('abertura de leilão (RF-011)', () => {
     });
 
     assert.equal(l.status, 'aberto');
+
+    // este teste abre o leilão na mão, sem o helper, então a caução
+    // tem de vir junto: ela é condição do lance (RF-012)
+    await darCaucao(l.id, compradores(1));
+
     const lance = await registrarLance({
       idLeilao: l.id, idEmpresa: compradores(1)[0], valor: 1000,
     });

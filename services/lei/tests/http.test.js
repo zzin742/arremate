@@ -59,7 +59,9 @@ before(async () => {
   await pool.query('SELECT 1');
   s = await subir(app);
 });
-beforeEach(async () => { await pool.query('TRUNCATE arremate, lance, leilao, outbox CASCADE'); });
+beforeEach(async () => {
+  await pool.query('TRUNCATE arremate, lance, leilao, outbox, caucao_ativa CASCADE');
+});
 after(async () => { await s.fechar(); await pool.end(); });
 
 async function leilao(extra = {}) {
@@ -73,6 +75,18 @@ async function leilao(extra = {}) {
       ...extra,
     },
   });
+
+  // Caução para quem vai lançar. É condição do lance (RF-012); sem
+  // ela todo teste daqui pararia em 403 antes da regra que quer
+  // provar. A regra da caução é exercitada em `caucoes.test.js`.
+  if (r.json?.id) {
+    await Promise.all([COMPRADOR, OUTRO].map((empresa, i) => pool.query(
+      `INSERT INTO caucao_ativa (id_leilao, id_empresa, id_caucao)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [r.json.id, empresa, `bbbbbbbb-0000-0000-0000-${String(i).padStart(12, '0')}`],
+    )));
+  }
+
   return r;
 }
 

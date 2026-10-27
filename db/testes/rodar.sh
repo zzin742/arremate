@@ -36,7 +36,7 @@ for banco in auth hab cat mid lei cau vis not; do
   db="arremate_${banco}"
   aplicar "$db" db/migrations/_comum/000_extensoes.sql
   case "$banco" in
-    auth|cat|lei|mid) aplicar "$db" db/migrations/_comum/001_outbox.sql ;;
+    auth|cat|lei|mid|cau) aplicar "$db" db/migrations/_comum/001_outbox.sql ;;
   esac
   for m in db/migrations/"$banco"/*.sql; do
     [ -e "$m" ] || continue

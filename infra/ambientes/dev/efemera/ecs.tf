@@ -33,7 +33,7 @@ resource "aws_ecs_task_definition" "servico" {
 
     portMappings = [{ containerPort = each.value.porta, protocol = "tcp" }]
 
-    environment = [
+    environment = concat([
       { name = "PORTA", value = tostring(each.value.porta) },
       { name = "PGHOST", value = aws_db_instance.principal.address },
       { name = "PGDATABASE", value = "arremate_${each.key}" },
@@ -46,7 +46,15 @@ resource "aws_ecs_task_definition" "servico" {
       # erro de senha — o Postgres local, sem TLS, escondeu isso até a
       # primeira subida (shared/banco.js).
       { name = "PGSSL", value = "exigir" },
-    ]
+      ],
+      # Filas e tópicos que cada serviço consome ou publica.
+      #
+      # Sem isto os consumidores NÃO LIGAM: o código checa
+      # `process.env.FILA_*` antes de iniciar, de propósito, para a
+      # imagem subir no CI sem AWS. A consequência é que o evento
+      # chegava à fila na nuvem e ninguém o tirava de lá.
+      local.ambiente_de_fila[each.key],
+    )
 
     secrets = [
       { name = "PGPASSWORD", valueFrom = aws_ssm_parameter.senha_banco.arn },

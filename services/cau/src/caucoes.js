@@ -119,6 +119,29 @@ export async function processarWebhook({ provedor, idEvento, idCobranca, tipo, p
       'UPDATE caucao SET status = $1, atualizado_em = now() WHERE id = $2 RETURNING *',
       [alvo, caucao.id],
     );
+
+    // O aviso ao LEI sai na MESMA transação da mudança de status.
+    //
+    // Fora dela existiria o instante em que o CAU já confirmou e o LEI
+    // nunca vai saber: basta o processo morrer entre o COMMIT e a
+    // publicação. É o motivo de a outbox existir (ADR-007) — e o CAU
+    // só ganhou a tabela quando passou a precisar avisar alguém.
+    //
+    // `confirmada` libera o lance; `recusada` e `devolvida` tiram a
+    // permissão. Os três viajam no mesmo evento, com o status dentro,
+    // em vez de um tipo por transição: o LEI decide o que fazer, e
+    // acrescentar um status novo não exige tópico novo.
+    await cx.query(
+      `INSERT INTO outbox (agregado, id_agregado, tipo_evento, payload)
+       VALUES ('caucao', $1, 'caucao_mudou', $2)`,
+      [atualizada.id, JSON.stringify({
+        id_caucao: atualizada.id,
+        id_leilao: atualizada.id_leilao,
+        id_empresa: atualizada.id_empresa,
+        status: atualizada.status,
+      })],
+    );
+
     return { ...atualizada, repetido: false, aplicado: true };
   });
 }

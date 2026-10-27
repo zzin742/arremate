@@ -32,7 +32,8 @@ const MIGRATIONS = path.join(AQUI, 'migrations');
 
 const SERVICOS = ['auth', 'hab', 'cat', 'mid', 'lei', 'cau', 'vis', 'not'];
 // Só estes publicam evento, e só eles precisam da tabela de outbox.
-const COM_OUTBOX = new Set(['auth', 'cat', 'lei', 'mid']);
+// O CAU entrou quando passou a avisar o LEI da caução confirmada.
+const COM_OUTBOX = new Set(['auth', 'cat', 'lei', 'mid', 'cau']);
 
 function tls() {
   if (process.env.PGSSL !== 'exigir') return false;

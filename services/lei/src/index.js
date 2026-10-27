@@ -2,10 +2,11 @@ import express from 'express';
 import { z } from 'zod';
 import { registrarLance, abrirLeilao, consultarLeilao, LanceRecusado } from './lances.js';
 import {
-  AUDIENCIA_SESSAO, criarMetricas, idadeDaPendenciaMaisAntiga,
+  AUDIENCIA_SESSAO, criarConsumidor, criarMetricas, idadeDaPendenciaMaisAntiga,
   tirarPrefixo, verificar, verificarTokenHabilitacao,
 } from '@arremate/shared';
-import { pool } from './db.js';
+import { emTransacao, pool } from './db.js';
+import { espelharCaucao } from './caucoes.js';
 
 const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
 export const app = express();
@@ -145,4 +146,22 @@ app.use((erro, _req, res, _next) => {
 if (process.env.NODE_ENV !== 'test' && !process.env.NODE_TEST_CONTEXT) {
   const porta = Number(process.env.PORTA ?? 3002);
   app.listen(porta, () => console.log(`lei ouvindo em :${porta}`));
+
+  // Espelha a caução que o CAU confirmou. Só liga quando há fila
+  // configurada: no CI a imagem sobe sem AWS, e o /saude tem de
+  // responder mesmo assim.
+  if (process.env.FILA_ESPELHAR_CAUCAO) {
+    criarConsumidor({
+      urlFila: process.env.FILA_ESPELHAR_CAUCAO,
+      tratar: async ({ corpo }) => {
+        await emTransacao((cx) => espelharCaucao(cx, {
+          idCaucao: corpo.id_caucao,
+          idLeilao: corpo.id_leilao,
+          idEmpresa: corpo.id_empresa,
+          status: corpo.status,
+        }));
+      },
+    }).iniciar();
+    console.log('consumindo leilao-espelhar-caucao');
+  }
 }
