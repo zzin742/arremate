@@ -23,6 +23,12 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run lint
+      # Importação sem declaração passa no `npm test` -- o npm iça do
+      # workspace vizinho -- e quebra só na imagem, onde o
+      # `npm ci --workspace <x>` instala apenas o declarado. Já custou
+      # dois CIs vermelhos (zod no HAB, jsonwebtoken no shared, este
+      # derrubando quatro imagens de uma vez). Aqui custa um segundo.
+      - run: node testes/dependencias-declaradas.mjs
 
   imagens:
     name: Imagens dos serviços
