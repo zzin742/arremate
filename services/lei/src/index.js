@@ -1,6 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { registrarLance, abrirLeilao, consultarLeilao, LanceRecusado } from './lances.js';
+import { encerrarLeilao, anularArremate, ErroDeEncerramento } from './encerramento.js';
 import {
   AUDIENCIA_SESSAO, criarConsumidor, criarMetricas, idadeDaPendenciaMaisAntiga,
   tirarPrefixo, verificar, verificarTokenHabilitacao,
@@ -115,10 +116,35 @@ app.post('/leiloes/:id/lances', exigirSessao, exigirHabilitacao, async (req, res
   } catch (e) { next(e); }
 });
 
+/**
+ * Encerra o leilão (RF-018). Operação do sistema, não do participante:
+ * o encerrador roda por tempo e chama isto. Exposta como rota para a
+ * demonstração e para reprocessar um leilão preso.
+ */
+app.post('/leiloes/:id/encerrar', async (req, res, next) => {
+  try {
+    res.json(await encerrarLeilao(req.params.id));
+  } catch (e) { next(e); }
+});
+
+/** Anula o arremate por reverificação negativa (RF-004b). */
+app.post('/leiloes/:id/anular-arremate', async (req, res, next) => {
+  try {
+    const { motivo } = z.object({ motivo: z.string().min(3).max(40) }).parse(req.body);
+    res.json(await anularArremate(req.params.id, motivo));
+  } catch (e) { next(e); }
+});
+
 app.use((erro, _req, res, _next) => {
   if (erro instanceof z.ZodError) {
     return res.status(400).json({ codigo: 'dados_invalidos', detalhes: erro.issues });
   }
+  if (erro instanceof ErroDeEncerramento) {
+    const status = erro.codigo === 'leilao_inexistente' ? 404
+                 : erro.codigo === 'sem_arremate' ? 409 : 400;
+    return res.status(status).json({ codigo: erro.codigo, mensagem: erro.message });
+  }
+
   if (erro instanceof LanceRecusado) {
     // 409: o pedido estava bem formado, mas o estado do leilão o recusa
     // 403 para habilitação e caução porque o RF-012 pede esse código

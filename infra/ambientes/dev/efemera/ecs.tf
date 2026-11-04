@@ -114,6 +114,13 @@ resource "aws_ecs_service" "servico" {
     assign_public_ip = false # saída pelo NAT
   }
 
+  # Registra a tarefa no Cloud Map. É por aqui que o Prometheus a
+  # encontra: pelo ALB ele raspava uma tarefa sorteada a cada chamada
+  # (ver observabilidade.tf).
+  service_registries {
+    registry_arn = aws_service_discovery_service.servico[each.key].arn
+  }
+
   dynamic "load_balancer" {
     for_each = var.sessao_ativa ? [1] : []
     content {
@@ -169,7 +176,10 @@ resource "aws_lb_listener" "https" {
 resource "aws_lb_listener_rule" "servico" {
   for_each     = local.servicos
   listener_arn = aws_lb_listener.https.arn
-  priority     = index(keys(local.servicos), each.key) + 1
+  # Começa em 10 para deixar as primeiras prioridades livres: o Grafana
+  # usa a 1 (observabilidade.tf), e prioridade repetida faz o apply
+  # falhar.
+  priority = index(keys(local.servicos), each.key) + 10
 
   action {
     type             = "forward"

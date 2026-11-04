@@ -1,6 +1,15 @@
 import { emTransacao, pool } from './db.js';
 import { temCaucao } from './caucoes.js';
 
+/**
+ * Janela final do RF-017: lance dentro dela prorroga, e prorroga por ela.
+ *
+ * Interpolada no SQL em vez de ir como parâmetro porque `interval` com
+ * placeholder exige cast a cada uso; é constante do código, nunca entra
+ * valor de requisição aqui.
+ */
+const JANELA_FINAL_SQL = "interval '2 minutes'";
+
 export class LanceRecusado extends Error {
   constructor(codigo, mensagem) {
     super(mensagem);
@@ -117,7 +126,26 @@ export async function registrarLance({ idLeilao, idEmpresa, valor }) {
       );
     }
 
-    return lance;
+    // ── 5. prorrogação (RF-017) ──────────────────────────────────────
+    //
+    // Lance nos últimos 2 minutos estende o encerramento em 2 minutos.
+    // Feito DENTRO da trava, e com o novo prazo contado a partir do
+    // `clock_timestamp()` — não do `encerra_em` antigo. Somar ao antigo
+    // daria prorrogação nenhuma se o lance entrou já perto do fim: o
+    // novo prazo cairia no passado imediato.
+    //
+    // Sem teto de prorrogações de propósito: o RF-017 não define um, e
+    // inventar um limite aqui mudaria a regra sem estar escrita.
+    const { rows: [{ encerra_em: prazo }] } = await cx.query(
+      `UPDATE leilao
+          SET encerra_em = clock_timestamp() + ${JANELA_FINAL_SQL}
+        WHERE id = $1
+          AND encerra_em - clock_timestamp() <= ${JANELA_FINAL_SQL}
+       RETURNING encerra_em`,
+      [idLeilao],
+    ).then((r) => (r.rows.length ? r : { rows: [{ encerra_em: leilao.encerra_em }] }));
+
+    return { ...lance, encerra_em: prazo, prorrogado: prazo !== leilao.encerra_em };
   });
 }
 
