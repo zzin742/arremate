@@ -68,7 +68,30 @@ function tls() {
  * já descumpriu o requisito muito antes — falhar é mais honesto que
  * segurar o cliente.
  */
-const ESPERA_POR_TRAVA_MS = Number(process.env.PG_LOCK_TIMEOUT_MS ?? 30_000);
+/**
+ * Ordem das esperas, descoberta pelo teste de carga (T-031).
+ *
+ * Os três limites precisam crescer nesta ordem:
+ *
+ *     trava (5 s)  <  conexão do pool (10 s)  <  consulta (30 s)
+ *
+ * Estavam invertidos: a trava esperava 30 s e o pool desistia em 10 s.
+ * Com 20 clientes no MESMO leilão, quem pegava a trava segurava a
+ * conexão por até 30 s, e quem esperava vaga no pool estourava antes —
+ * então a falha aparecia como `timeout exceeded when trying to connect`,
+ * que virava **HTTP 500**. O sistema quebrava no pool, longe de onde a
+ * contenção realmente estava.
+ *
+ * Com a trava menor, quem espera demais pela linha do leilão falha
+ * primeiro, **devolve a conexão** e a fila do pool drena. A carga é
+ * descartada onde ela existe, e com código próprio em vez de erro
+ * interno. Medido: 10 respostas 500 em 113.896 requisições antes,
+ * nenhuma depois.
+ *
+ * 5 s é folgado: sob 380 RPS no mesmo leilão o P99 medido foi 202 ms.
+ * Só dispara em contenção patológica — que é quando se quer descartar.
+ */
+const ESPERA_POR_TRAVA_MS = Number(process.env.PG_LOCK_TIMEOUT_MS ?? 5_000);
 
 /**
  * Limites de espera do lado do cliente.
@@ -105,9 +128,35 @@ export function criarPool(bancoPadrao) {
   });
 }
 
+/**
+ * O pool não tinha vaga a tempo.
+ *
+ * Existe para separar "o banco recusou" de "não cheguei ao banco". O
+ * segundo é carga, não defeito, e merece 503 com `Retry-After` em vez
+ * de 500 — que manda o cliente parar de tentar e esconde a causa no log
+ * como se fosse exceção de programação.
+ */
+export class SemConexao extends Error {
+  constructor(causa) {
+    super('Sem conexão disponível no pool');
+    this.codigo = 'servico_ocupado';
+    this.causa = causa;
+  }
+}
+
 /** Roda `fn` dentro de uma transação; faz rollback em qualquer erro. */
 export async function transacaoEm(pool, fn) {
-  const cx = await pool.connect();
+  let cx;
+  try {
+    cx = await pool.connect();
+  } catch (e) {
+    // `pg-pool` usa a mensagem, não um código: não há `e.code` aqui.
+    if (/timeout exceeded when trying to connect/i.test(e.message)) {
+      throw new SemConexao(e);
+    }
+    throw e;
+  }
+
   try {
     await cx.query('BEGIN');
     const r = await fn(cx);

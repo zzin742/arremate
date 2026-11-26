@@ -2,10 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { registrarLance, abrirLeilao, consultarLeilao, LanceRecusado } from './lances.js';
 import { encerrarLeilao, anularArremate, aprovarArremate, ErroDeEncerramento } from './encerramento.js';
-import {
-  AUDIENCIA_SESSAO, criarConsumidor, criarMetricas, idadeDaPendenciaMaisAntiga,
-  tirarPrefixo, verificar, verificarTokenHabilitacao,
-} from '@arremate/shared';
+import { AUDIENCIA_SESSAO, criarConsumidor, criarMetricas, idadeDaPendenciaMaisAntiga, tirarPrefixo, verificar, verificarTokenHabilitacao, SemConexao } from '@arremate/shared';
 import { emTransacao, pool } from './db.js';
 import { espelharCaucao } from './caucoes.js';
 
@@ -171,6 +168,18 @@ app.use((erro, _req, res, _next) => {
                  : SEM_PERMISSAO.includes(erro.codigo) ? 403 : 409;
     return res.status(status).json({ codigo: erro.codigo, mensagem: erro.message });
   }
+  // Carga, não defeito: o pool não tinha vaga a tempo. 503 com
+  // `Retry-After` diz ao cliente que a tentativa vale de novo; 500
+  // dizia "erro nosso, desista" e enterrava a causa no log como
+  // exceção de programação. Descoberto pelo teste de carga (T-031).
+  if (erro instanceof SemConexao) {
+    res.set('Retry-After', '1');
+    return res.status(503).json({
+      codigo: erro.codigo,
+      mensagem: 'Serviço ocupado, tente novamente',
+    });
+  }
+
   console.error(erro);
   res.status(500).json({ codigo: 'erro_interno' });
 });
