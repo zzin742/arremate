@@ -292,6 +292,59 @@ describe('registro de lance (RF-013)', () => {
   });
 });
 
+describe('reverificação: as duas portas (RF-004b, RF-023)', () => {
+  /** Leilão com arremate: abre, recebe lance, vence e encerra. */
+  async function arrematado() {
+    const r = await leilao();
+    await s.post(`/leiloes/${r.json.id}/lances`, {
+      token: token(COMPRADOR), cabecalhos: habilitada(COMPRADOR), corpo: { valor: 2000 },
+    });
+    await pool.query(
+      "UPDATE leilao SET encerra_em = clock_timestamp() - interval '1 second' WHERE id = $1",
+      [r.json.id],
+    );
+    await s.post(`/leiloes/${r.json.id}/encerrar`, {});
+    return r.json.id;
+  }
+
+  test('aprovar publica a liquidação com o arrematante', async () => {
+    const id = await arrematado();
+    const r = await s.post(`/leiloes/${id}/aprovar-arremate`, {});
+
+    assert.equal(r.status, 200);
+    assert.equal(r.json.aprovado, true);
+    assert.equal(r.json.idArrematante, COMPRADOR);
+  });
+
+  test('aprovar o que foi anulado é 400, não 500', async () => {
+    const id = await arrematado();
+    await s.post(`/leiloes/${id}/anular-arremate`, { corpo: { motivo: 'cnpj_inativo' } });
+
+    const r = await s.post(`/leiloes/${id}/aprovar-arremate`, {});
+    assert.equal(r.status, 400);
+    assert.equal(r.json.codigo, 'arremate_anulado');
+  });
+
+  test('leilão deserto não tem arremate a aprovar: 409', async () => {
+    const r = await leilao();
+    await pool.query(
+      "UPDATE leilao SET encerra_em = clock_timestamp() - interval '1 second' WHERE id = $1",
+      [r.json.id],
+    );
+    await s.post(`/leiloes/${r.json.id}/encerrar`, {});
+
+    const aprovar = await s.post(`/leiloes/${r.json.id}/aprovar-arremate`, {});
+    assert.equal(aprovar.status, 409);
+    assert.equal(aprovar.json.codigo, 'sem_arremate');
+  });
+
+  test('leilão que não existe é 404', async () => {
+    const r = await s.post('/leiloes/99999999-9999-9999-9999-999999999999/aprovar-arremate', {});
+    assert.equal(r.status, 404);
+    assert.equal(r.json.codigo, 'leilao_inexistente');
+  });
+});
+
 describe('credenciais: o que separa sessão de habilitação', () => {
   test('token de HABILITAÇÃO não vale como sessão', async () => {
     // Foi o ataque real, comprovado antes da correção: os dois tipos

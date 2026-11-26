@@ -12,3 +12,6 @@ coverage/
 .terraform.lock.hcl
 .venv/
 coverage/
+
+# logs do script de demonstracao (scripts/demo.sh)
+.demo-logs/

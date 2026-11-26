@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { registrarLance, abrirLeilao, consultarLeilao, LanceRecusado } from './lances.js';
-import { encerrarLeilao, anularArremate, ErroDeEncerramento } from './encerramento.js';
+import { encerrarLeilao, anularArremate, aprovarArremate, ErroDeEncerramento } from './encerramento.js';
 import {
   AUDIENCIA_SESSAO, criarConsumidor, criarMetricas, idadeDaPendenciaMaisAntiga,
   tirarPrefixo, verificar, verificarTokenHabilitacao,
@@ -132,6 +132,19 @@ app.post('/leiloes/:id/anular-arremate', async (req, res, next) => {
   try {
     const { motivo } = z.object({ motivo: z.string().min(3).max(40) }).parse(req.body);
     res.json(await anularArremate(req.params.id, motivo));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Aprova o arremate na reverificação e manda liquidar (RF-023).
+ *
+ * Par da rota acima: a reverificação tem dois desfechos, e só um deles
+ * tinha porta de entrada. Sem esta, a decisão positiva não existia fora
+ * do código e a liquidação do caminho feliz não podia ser demonstrada.
+ */
+app.post('/leiloes/:id/aprovar-arremate', async (req, res, next) => {
+  try {
+    res.json(await aprovarArremate(req.params.id));
   } catch (e) { next(e); }
 });
 
