@@ -11,8 +11,9 @@
 
 O documento 08 afirma que **dez requisitos de prioridade Alta não são
 atendidos integralmente** pelo escopo comprometido. Essa afirmação está
-desatualizada: **nove dos dez foram implementados depois que o documento foi
-escrito**, e só um continua de fora.
+desatualizada: **nove dos dez já estavam implementados quando este
+levantamento foi feito**, o décimo foi fechado em 26/11 pelo T-025, e só o
+RF-015 continua de fora.
 
 A divergência é toda na direção favorável — o projeto entrega mais do que o
 documento promete. O risco é de avaliação, não de produto: a banca lê
@@ -29,6 +30,8 @@ está no repositório, testado e coberto.
 | RF-008 | **Parcial** — "a ficha só exibe após conversão" | A conversão existe, então a condição que tornava o RF parcial caiu | commit `d20fb15` + `services/mid/src/conversao.py` |
 | RF-009 | **Adicional** (T-016) | Worker de conversão com FFmpeg | commit `d20fb15 feat(mid): worker de conversao com FFmpeg (T-016)`; `conversao.py` com 91,2% de cobertura |
 | RF-010 | **Adicional** (T-016) | idem | idem |
+| RF-004b | **Parcial** — "a devolução pelo CAU é adicional" | A devolução pelo CAU existe (T-025, commit `3390278`) | `services/cau/src/caucoes.js` — `liquidar()` com `devolverTodas` |
+| RF-023 | **Adicional** (T-025) | Abatimento do arrematante e devolução dos demais, pedida ao provedor e confirmada por webhook | commit `3390278`; 11 testes em `services/cau/tests/liquidacao.test.js` |
 | RF-021b | **Adicional** (T-025) | Caução devolvida não volta a ser confirmada | `services/cau/src/caucoes.js:16-25` (estados terminais) + teste `RF-021b: aprovação após devolução NÃO ressuscita a caução` |
 | RF-024 | **Adicional** (T-026) | Agendamento de visita | commit `386b33a feat(vis, not): agenda de visita e notificacao`; `services/vis/src/visitas.js` com 97,5% de cobertura e 25 testes |
 | RF-025 | **Adicional** (T-026) | idem, com a constraint `EXCLUDE` exercida | idem + `npm run test:db` → "ok 1.2 — outro equipamento no mesmo horário é aceito" |
@@ -43,14 +46,25 @@ está no repositório, testado e coberto.
 |---|---|
 | RF-015 — atualização do lance em tempo real | **Não implementado, e corretamente marcado como Adicional.** Não existe WebSocket em nenhum serviço. A interface acompanha por consulta periódica, e isso está escrito no próprio código: `web/src/App.jsx:88` — *"Consulta periódica. Na Sprint do WebSocket (T-012, escopo adicional)"*. |
 
-## 3. Um item a conferir antes de alterar o documento
+## 3. RF-023 — estava mesmo incompleto, e foi fechado em 26/11
 
-**RF-023 (devolução da caução).** O provedor expõe `devolver`
-(`services/cau/src/provedor.js:10`) e o estado `devolvida` é terminal e
-testado. O que **não** verifiquei é se o fluxo completo do RF-023 — gatilho,
-reconciliação e confirmação da devolução ao participante — está fechado, ou se
-só a transição de estado está. Daniel: confira antes de promover este de
-Adicional para Completo. Os outros onze da tabela acima têm evidência direta.
+A ressalva desta seção se confirmou. A investigação achou a ponta solta:
+
+- o LEI publicava `leilao_liquidar` **só no caminho da anulação**. A aprovação
+  da reverificação não publicava nada, então `abater_do_arrematante` era
+  sempre `null`;
+- o CAU **não consumia** o evento. `provedor.devolver()` estava definido e
+  nunca era chamado por nenhum código.
+
+Na prática: a caução do arrematante ficava retida para sempre e a dos
+perdedores nunca voltava.
+
+Fechado no commit `3390278` (T-025): `aprovarArremate()` no LEI, `liquidar()`
+e o consumidor no CAU, mais duas migrations. A devolução é **pedida ao
+provedor** e só vira `devolvida` quando o webhook confirma, como o requisito
+exige. 17 testes novos.
+
+**RF-023 e RF-004b passam de Adicional/Parcial para Completo.**
 
 ## 4. O que muda na tabela da seção "Dez requisitos de prioridade Alta"
 
@@ -64,12 +78,14 @@ Pelo código de hoje, essa tabela vira:
 
 | Situação | Requisitos | Quantos |
 |---|---|---:|
-| Parcial | RF-004b (a devolução pelo CAU), RF-023 (a confirmar) | 1 a 2 |
 | Adicional | RF-015 | 1 |
-| | | **2 a 3** |
+| | | **1** |
 
-De dez para dois ou três. É a diferença entre apresentar um MVP e apresentar
-o escopo quase inteiro.
+De dez para **um**. É a diferença entre apresentar um MVP e apresentar o
+escopo inteiro menos o tempo real.
+
+> Atualizado em 26/11 após o T-025: RF-004b e RF-023 saíram desta tabela
+> porque foram implementados. Antes disso eram 2 a 3.
 
 ---
 
