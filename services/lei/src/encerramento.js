@@ -7,9 +7,11 @@
  * lance entra no mesmo instante, e o leilão fecha com um lance a mais do
  * que o arremate registrou — ou com um arremate que não é o maior.
  *
- * O que este módulo NÃO faz: devolver ou abater caução. Isso é do CAU, e
- * está em T-025, fora do escopo comprometido. Aqui a decisão é
- * persistida e publicada; quem age sobre o dinheiro é o outro serviço.
+ * O que este módulo NÃO faz: devolver ou abater caução. Isso é do CAU.
+ * Aqui a decisão é persistida e publicada em `leilao_liquidar`; quem age
+ * sobre o dinheiro é o outro serviço. A divisão importa porque abater e
+ * devolver chamam um provedor externo, e nada disso pode acontecer
+ * dentro da trava da linha do leilão.
  */
 
 import { emTransacao } from './db.js';
@@ -176,6 +178,82 @@ export async function anularArremate(idLeilao, motivo) {
     );
 
     return { anulado: true, arremate: atualizado };
+  });
+}
+
+/**
+ * Aprova o arremate na reverificação e manda liquidar (RF-023).
+ *
+ * É o caminho feliz que faltava. A anulação já publicava
+ * `leilao_liquidar` com `devolver_todas`, mas a aprovação não publicava
+ * nada — então o CAU nunca recebia ordem de abater a caução do
+ * arrematante, e o dinheiro ficava parado em `confirmada` para sempre.
+ *
+ * O `abater_do_arrematante` vai dito em campo, pelo mesmo motivo que o
+ * `devolver_todas`: quem decide o destino de cada caução é o LEI, que
+ * tem o arremate. Deixar o CAU deduzir "o arrematante é quem deu o maior
+ * lance" poria a regra de negócio em dois serviços, e os dois poderiam
+ * discordar.
+ */
+export async function aprovarArremate(idLeilao) {
+  return emTransacao(async (cx) => {
+    const { rows: [leilao] } = await cx.query(
+      'SELECT id, status FROM leilao WHERE id = $1 FOR UPDATE',
+      [idLeilao],
+    );
+
+    if (!leilao) {
+      throw new ErroDeEncerramento('leilao_inexistente', 'Leilão não encontrado');
+    }
+
+    const { rows: [arremate] } = await cx.query(
+      'SELECT * FROM arremate WHERE id_leilao = $1',
+      [idLeilao],
+    );
+
+    if (!arremate) {
+      throw new ErroDeEncerramento('sem_arremate', 'Este leilão não tem arremate a aprovar');
+    }
+
+    // Anulado não volta. A reverificação já foi decidida contra, e
+    // reabrir por outra rota transformaria a anulação em opinião.
+    if (arremate.anulado_em) {
+      throw new ErroDeEncerramento('arremate_anulado', 'Arremate anulado não pode ser aprovado');
+    }
+
+    // Idempotente: aprovar de novo não publica outra liquidação, que
+    // mandaria o CAU abater uma caução já abatida.
+    if (arremate.aprovado_em) {
+      return { aprovado: false, motivo: 'ja_aprovado', arremate };
+    }
+
+    const { rows: [atualizado] } = await cx.query(
+      'UPDATE arremate SET aprovado_em = now() WHERE id_leilao = $1 RETURNING *',
+      [idLeilao],
+    );
+
+    // De quem abater: o dono do lance vencedor. Lido aqui, do lance que
+    // o arremate aponta, e não recalculado — o maior lance de hoje pode
+    // não ser o que venceu, se algo entrou depois.
+    const { rows: [lance] } = await cx.query(
+      'SELECT id_empresa FROM lance WHERE id = $1',
+      [atualizado.id_lance],
+    );
+
+    await cx.query(
+      `INSERT INTO outbox (agregado, id_agregado, tipo_evento, payload)
+       VALUES ('arremate', $1, 'leilao_liquidar', $2)`,
+      [atualizado.id, JSON.stringify({
+        id_leilao: idLeilao,
+        id_arremate: atualizado.id,
+        anulado: false,
+        motivo: null,
+        devolver_todas: false,
+        abater_do_arrematante: lance.id_empresa,
+      })],
+    );
+
+    return { aprovado: true, arremate: atualizado, idArrematante: lance.id_empresa };
   });
 }
 

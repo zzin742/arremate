@@ -42,6 +42,16 @@ locals {
     lei = [
       { name = "FILA_ESPELHAR_CAUCAO", value = local.filas["leilao-espelhar-caucao"] },
     ]
+    # O CAU ainda NÃO está em `servicos`, então esta entrada não é lida
+    # por nenhuma task hoje — `ambiente_de_fila` é indexado por serviço
+    # implantado. Fica declarada porque o tópico `leilao-liquidar`, a
+    # fila `caucao-liquidar` e a assinatura entre os dois já existem na
+    # camada persistente: o evento chega à fila e ninguém o tira de lá
+    # até o CAU subir. Quando ele entrar no mapa de serviços, o
+    # consumidor liga sem mais nenhuma mudança aqui.
+    cau = [
+      { name = "FILA_LIQUIDACAO", value = local.filas["caucao-liquidar"] },
+    ]
   }
 }
 

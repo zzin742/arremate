@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import { pool } from '../src/db.js';
 import { registrarLance, abrirLeilao } from '../src/lances.js';
-import { encerrarLeilao, anularArremate, encerrarVencidos } from '../src/encerramento.js';
+import { encerrarLeilao, anularArremate, aprovarArremate, encerrarVencidos } from '../src/encerramento.js';
 
 const VENDEDOR = '11111111-1111-1111-1111-111111111111';
 const COMPRADOR = '22222222-2222-2222-2222-222222222222';
@@ -298,6 +298,98 @@ describe('anulação do arremate (RF-004b)', () => {
 
     await assert.rejects(
       () => anularArremate(l.id, 'cnpj_inativo'),
+      (e) => e.codigo === 'sem_arremate',
+    );
+  });
+});
+
+describe('aprovação do arremate (RF-023)', () => {
+  async function leilaoArrematado() {
+    const l = await leilao();
+    await registrarLance({ idLeilao: l.id, idEmpresa: COMPRADOR, valor: 1000 });
+    await vencer(l.id);
+    await encerrarLeilao(l.id);
+    return l;
+  }
+
+  const liquidacoes = async () => (await pool.query(
+    "SELECT payload FROM outbox WHERE tipo_evento = 'leilao_liquidar' ORDER BY criado_em",
+  )).rows;
+
+  test('publica a liquidação dizendo DE QUEM abater', async () => {
+    // Este evento não existia: só a anulação publicava. Sem ele o CAU
+    // nunca recebia ordem de abater, e a caução do arrematante ficava
+    // retida para sempre.
+    const l = await leilaoArrematado();
+    const r = await aprovarArremate(l.id);
+
+    assert.equal(r.aprovado, true);
+    assert.equal(r.idArrematante, COMPRADOR);
+
+    const [evento] = await liquidacoes();
+    assert.equal(evento.payload.devolver_todas, false);
+    assert.equal(evento.payload.abater_do_arrematante, COMPRADOR);
+    assert.equal(evento.payload.anulado, false);
+  });
+
+  test('o arrematante vem do lance que VENCEU, não do maior de agora', async () => {
+    const l = await leilao();
+    await registrarLance({ idLeilao: l.id, idEmpresa: COMPRADOR, valor: 1000 });
+    await registrarLance({ idLeilao: l.id, idEmpresa: OUTRO, valor: 5000 });
+    await vencer(l.id);
+    await encerrarLeilao(l.id);
+
+    const r = await aprovarArremate(l.id);
+    assert.equal(r.idArrematante, OUTRO, 'o arremate aponta o lance; é dele que sai o dono');
+  });
+
+  test('aprovar duas vezes não publica duas liquidações', async () => {
+    // Abater duas vezes a mesma caução é o estrago que isto evita.
+    const l = await leilaoArrematado();
+    await aprovarArremate(l.id);
+    const segunda = await aprovarArremate(l.id);
+
+    assert.equal(segunda.aprovado, false);
+    assert.equal(segunda.motivo, 'ja_aprovado');
+    assert.equal((await liquidacoes()).length, 1);
+  });
+
+  test('arremate anulado NÃO pode ser aprovado', async () => {
+    const l = await leilaoArrematado();
+    await anularArremate(l.id, 'cnpj_inativo');
+
+    await assert.rejects(
+      () => aprovarArremate(l.id),
+      (e) => e.codigo === 'arremate_anulado',
+    );
+    // continua só a liquidação da anulação
+    const eventos = await liquidacoes();
+    assert.equal(eventos.length, 1);
+    assert.equal(eventos[0].payload.devolver_todas, true);
+  });
+
+  test('aprovado e anulado não coexistem — a regra está no banco', async () => {
+    const l = await leilaoArrematado();
+    await aprovarArremate(l.id);
+
+    // Forçando por SQL, o CHECK é quem recusa. A aplicação já barra pelo
+    // caminho normal; o teste existe para provar que barrar não depende
+    // de a aplicação lembrar.
+    await assert.rejects(
+      () => pool.query(
+        'UPDATE arremate SET anulado_em = now() WHERE id_leilao = $1', [l.id],
+      ),
+      (e) => e.code === '23514',
+    );
+  });
+
+  test('leilão sem arremate não pode ser aprovado', async () => {
+    const l = await leilao();
+    await vencer(l.id);
+    await encerrarLeilao(l.id);   // deserto
+
+    await assert.rejects(
+      () => aprovarArremate(l.id),
       (e) => e.codigo === 'sem_arremate',
     );
   });

@@ -1,8 +1,8 @@
 import express from 'express';
 import { z } from 'zod';
-import { solicitar, processarWebhook, temCaucaoAtiva, reconciliar, ErroDeCaucao } from './caucoes.js';
+import { solicitar, processarWebhook, temCaucaoAtiva, reconciliar, liquidar, daLiquidacao, ErroDeCaucao } from './caucoes.js';
 import { criarProvedorSandbox } from './provedor.js';
-import { criarMetricas, tirarPrefixo } from '@arremate/shared';
+import { criarConsumidor, criarMetricas, tirarPrefixo } from '@arremate/shared';
 
 const provedor = criarProvedorSandbox();
 export const app = express();
@@ -83,4 +83,17 @@ if (process.env.NODE_ENV !== 'test' && !process.env.NODE_TEST_CONTEXT) {
   setInterval(() => {
     reconciliar({ provedor }).catch((e) => console.error('reconciliar:', e.message));
   }, 120_000).unref();
+
+  // Liquidação do leilão (RF-023): o LEI decide quem é abatido e quem é
+  // devolvido, e publica. Sem este consumidor a decisão ficava na outbox
+  // do LEI sem ninguém do outro lado — era o estado anterior a T-025.
+  if (process.env.FILA_LIQUIDACAO) {
+    criarConsumidor({
+      urlFila: process.env.FILA_LIQUIDACAO,
+      tratar: async ({ idEvento, corpo }) => {
+        await liquidar(daLiquidacao({ idEvento, corpo }), { provedor });
+      },
+    }).iniciar();
+    console.log('consumindo leilao-liquidar');
+  }
 }

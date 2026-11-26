@@ -146,6 +146,111 @@ export async function processarWebhook({ provedor, idEvento, idCobranca, tipo, p
   });
 }
 
+/**
+ * Aplica a decisão de liquidação vinda do LEI (RF-023).
+ *
+ * A caução do arrematante é **abatida**; as demais são **devolvidas**. Se
+ * o arremate foi anulado (RF-004b), `devolverTodas` vem verdadeiro e
+ * ninguém é abatido — inclusive o arrematante.
+ *
+ * Três decisões que o requisito impõe e que o código precisa respeitar:
+ *
+ *   1. A devolução é **pedida ao provedor**, não carimbada no banco. O
+ *      status só vai para `devolvida` quando o webhook `pagamento.devolvido`
+ *      chegar. Enquanto isso a caução fica `confirmada` com
+ *      `devolucao_solicitada_em` preenchido — pedido feito, dinheiro não
+ *      voltou ainda. Marcar direto no banco seria dizer que devolveu
+ *      sem ter devolvido.
+ *
+ *   2. O abatimento é terminal e local: não existe chamada externa para
+ *      "abater", porque abater é ficar com o dinheiro que já está retido.
+ *
+ *   3. O consumo é idempotente pela chave do evento, não pelo leilão. A
+ *      entrega do SQS é ao menos uma vez, e reprocessar significaria
+ *      pedir a mesma devolução duas vezes ao provedor.
+ *
+ * O provedor fica FORA da transação de propósito. Ele é rede: uma
+ * chamada lenta dentro da transação seguraria as linhas travadas pelo
+ * tempo que o provedor levar. O preço é que uma falha no meio deixa
+ * parte das devoluções pedidas — e é por isso que a marca é por caução,
+ * e não um booleano do leilão: reprocessar retoma de onde parou.
+ */
+export async function liquidar({ idEvento, idLeilao, anulado, devolverTodas, abaterDoArrematante }, { provedor }) {
+  // Idempotência primeiro: se este evento já foi aplicado, nada é
+  // refeito e nada é pedido ao provedor de novo.
+  try {
+    await pool.query(
+      `INSERT INTO liquidacao (id_evento, id_leilao, anulado, abater_de)
+       VALUES ($1, $2, $3, $4)`,
+      [idEvento, idLeilao, Boolean(anulado), devolverTodas ? null : abaterDoArrematante ?? null],
+    );
+  } catch (e) {
+    if (e.code === '23505') return { repetido: true, abatidas: 0, devolvidas: 0 };
+    throw e;
+  }
+
+  // Só caução `confirmada` entra: `pendente` nunca foi paga, `recusada`
+  // não gerou retenção, e `abatida`/`devolvida` já são terminais.
+  const { rows: caucoes } = await pool.query(
+    `SELECT id, id_empresa, id_cobranca_externa, devolucao_solicitada_em
+       FROM caucao
+      WHERE id_leilao = $1 AND status = 'confirmada'
+      ORDER BY criado_em`,
+    [idLeilao],
+  );
+
+  const r = { repetido: false, abatidas: 0, devolvidas: 0, indisponivel: 0 };
+
+  for (const c of caucoes) {
+    const abater = !devolverTodas && c.id_empresa === abaterDoArrematante;
+
+    if (abater) {
+      const { rowCount } = await pool.query(
+        `UPDATE caucao SET status = 'abatida', atualizado_em = now()
+          WHERE id = $1 AND status = 'confirmada'`,
+        [c.id],
+      );
+      if (rowCount) r.abatidas++;
+      continue;
+    }
+
+    // Já pedida antes, num processamento que morreu no meio: não pede de
+    // novo. O webhook ainda vai chegar — ou a reconciliação cuida.
+    if (c.devolucao_solicitada_em) continue;
+
+    try {
+      await provedor.devolver(c.id_cobranca_externa);
+    } catch (e) {
+      if (e instanceof ProvedorIndisponivel) { r.indisponivel++; continue; }
+      throw e;
+    }
+
+    await pool.query(
+      'UPDATE caucao SET devolucao_solicitada_em = now() WHERE id = $1',
+      [c.id],
+    );
+    r.devolvidas++;
+  }
+
+  await pool.query(
+    'UPDATE liquidacao SET abatidas = $2, devolvidas = $3 WHERE id_evento = $1',
+    [idEvento, r.abatidas, r.devolvidas],
+  );
+
+  return r;
+}
+
+/** Traduz o evento `leilao_liquidar` do LEI para os argumentos de `liquidar`. */
+export function daLiquidacao({ idEvento, corpo }) {
+  return {
+    idEvento,
+    idLeilao: corpo.id_leilao,
+    anulado: Boolean(corpo.anulado),
+    devolverTodas: Boolean(corpo.devolver_todas),
+    abaterDoArrematante: corpo.abater_do_arrematante ?? null,
+  };
+}
+
 /** A caução está ativa para este leilão? É o que o LEI pergunta (RF-012). */
 export async function temCaucaoAtiva(idLeilao, idEmpresa) {
   const { rows } = await pool.query(
