@@ -1,0 +1,19 @@
+{
+  "name": "@naregua/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node ../../testes/um-por-arquivo.mjs"
+  },
+  "dependencies": {
+    "@naregua/shared": "*",
+    "bcryptjs": "2.4.3",
+    "express": "4.21.2",
+    "jsonwebtoken": "9.0.2",
+    "pg": "8.13.1",
+    "zod": "3.24.1"
+  }
+}

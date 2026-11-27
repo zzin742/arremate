@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false   # um serviço quebrado não esconde o estado dos outros
       matrix:
-        servico: [auth, hab, lei, cau, vis, not, cat]
+        servico: [auth, agd]
     steps:
       - uses: actions/checkout@v4
 

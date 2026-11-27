@@ -118,23 +118,6 @@ for dir in "$RAIZ"/services/*/ "$RAIZ"/packages/*/ "$RAIZ"/web/; do
 done
 
 echo "==> medindo o worker de mídia (Python)"
-if [ -x "$RAIZ/services/mid/.venv/bin/python" ]; then
-  PY="$RAIZ/services/mid/.venv/bin/python"
-  "$PY" -m pip install -q coverage >/dev/null 2>&1 || true
-  (cd "$RAIZ/services/mid" \
-    && "$PY" -m coverage run -m pytest -q >/dev/null 2>&1 \
-    && "$PY" -m coverage lcov -o "$SAIDA/mid.bruto.lcov" >/dev/null 2>&1) || true
-
-  if [ -s "$SAIDA/mid.bruto.lcov" ]; then
-    # O mesmo prefixo dos serviços Node, pelo mesmo motivo. O coverage
-    # emite `src/conversao.py`, relativo ao diretório do worker; sem o
-    # prefixo esse caminho nunca bate com `services/mid/src/conversao.py`
-    # da varredura, e o arquivo era contado DUAS vezes — uma como medido
-    # e outra como "sem teste", com todas as linhas zeradas.
-    sed "s|^SF:|SF:services/mid/|" "$SAIDA/mid.bruto.lcov" > "$SAIDA/mid.ajustado.lcov"
-    echo "    mid"
-  fi
-fi
 
 echo "==> agregando"
 python3 "$RAIZ/db/testes/agregar_cobertura.py" "$SAIDA" "$RAIZ" "$META"

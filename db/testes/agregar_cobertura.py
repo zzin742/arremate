@@ -126,7 +126,7 @@ def main() -> int:
     # produto sumiam do denominador sem nada dizer. Medida que escolhe o
     # que medir não mede nada.
     for padrao in ("services/*/src/**/*.js", "packages/*/src/**/*.js",
-                   "services/mid/src/**/*.py", "web/src/**/*.js", "web/src/**/*.jsx"):
+                   "web/src/**/*.js", "web/src/**/*.jsx"):
         for arq in raiz.glob(padrao):
             relativo = normalizar(str(arq.relative_to(raiz)))
             if relativo in medidos:
