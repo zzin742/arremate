@@ -1,0 +1,21 @@
+{
+  "name": "naregua",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "services/*", "web"],
+  "scripts": {
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d --wait",
+    "migrar": "node db/migrar.js",
+    "test:db": "bash db/testes/rodar.sh",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
+    "web": "npm run dev --workspace @naregua/web"
+  },
+  "devDependencies": {
+    "eslint": "9.15.0",
+    "eslint-plugin-react": "^7.37.2",
+    "typescript": "5.7.2"
+  }
+}

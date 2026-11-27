@@ -1,0 +1,90 @@
+# Ambiente local completo (RNF-028: contingência por Docker Compose na banca).
+#
+# LocalStack cobre S3, SNS e SQS — as três APIs da AWS que a aplicação usa.
+# O planejamento previa MinIO junto, mas ele seria redundante: o S3 do
+# LocalStack atende, e uma peça a menos é uma peça a menos para manter
+# funcionando no dia da defesa.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: naregua
+      POSTGRES_PASSWORD: naregua
+      POSTGRES_DB: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naregua"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3,sns,sqs
+      DEBUG: "0"
+      # O LocalStack carrega provedores sob demanda e cresce rápido. Com
+      # 3,8 GB no Docker Desktop ele foi morto por OOM (exit 247) durante
+      # os testes. O limite abaixo o mantém previsível; se precisar de
+      # mais serviços, suba a memória do Docker junto.
+      EAGER_SERVICE_LOADING: "0"
+      SQS_DISABLE_CLOUDWATCH_METRICS: "1"
+    deploy:
+      resources:
+        limits: { memory: 1300M }
+    ports: ["4566:4566"]
+    volumes:
+      - ./infra/localstack-init:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── Observabilidade (RNF-021) ────────────────────────────────────────
+  #
+  # Não entram no `--wait` dos testes: o CI sobe só postgres e localstack
+  # por nome. Aqui eles existem para o desenvolvimento e para a defesa,
+  # onde o painel é o que mostra o RNF-001 sendo cumprido ou não.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    # Os serviços rodam no host, não em contêiner. `host-gateway` faz o
+    # nome `host.docker.internal` existir também no Linux — sem isso a
+    # mesma configuração só funcionaria no Docker Desktop.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/observabilidade/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    depends_on: [prometheus]
+    ports: ["3030:3000"]
+    environment:
+      # Sem login na defesa: o painel tem de abrir direto. É ambiente
+      # local, sem dado real e sem porta exposta para fora da máquina.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./infra/observabilidade/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./infra/observabilidade/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./infra/observabilidade/grafana/paineis:/etc/grafana/paineis:ro
+
+volumes:
+  pgdata:
+  promdata:

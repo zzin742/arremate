@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:   # permite disparar manualmente pela aba Actions
+
+# Encerramento de sessão, retomada e deploy compartilham este grupo
+# (arquitetura, §6.4). cancel-in-progress fica falso de propósito: um
+# encerramento cancelado pela metade é pior que um enfileirado.
+concurrency:
+  group: naregua-dev-infra
+  cancel-in-progress: false
+
+jobs:
+  qualidade:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      # Importação sem declaração passa no `npm test` -- o npm iça do
+      # workspace vizinho -- e quebra só na imagem, onde o
+      # `npm ci --workspace <x>` instala apenas o declarado. Já custou
+      # dois CIs vermelhos (zod no HAB, jsonwebtoken no shared, este
+      # derrubando quatro imagens de uma vez). Aqui custa um segundo.
+      - run: node testes/dependencias-declaradas.mjs
+
+  imagens:
+    name: Imagens dos serviços
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # um serviço quebrado não esconde o estado dos outros
+      matrix:
+        servico: [auth, hab, lei, cau, vis, not, cat]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir
+        run: |
+          docker build --build-arg SERVICO=${{ matrix.servico }} \
+            -f services/${{ matrix.servico }}/Dockerfile \
+            -t naregua/${{ matrix.servico }}:ci .
+
+      - name: Provar que a imagem RODA
+        # Build que passa não prova que o container sobe. O primeiro
+        # Dockerfile compilava e quebrava no start, porque ARG não existe
+        # em tempo de execução e o CMD procurava um caminho vazio.
+        run: |
+          docker run -d --name prova-${{ matrix.servico }} \
+            -e PORTA=3000 -p 3000:3000 \
+            naregua/${{ matrix.servico }}:ci
+          for i in $(seq 1 20); do
+            if curl -sf localhost:3000/saude; then echo " <- respondeu"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::container não respondeu em /saude"
+          docker logs prova-${{ matrix.servico }}
+          exit 1
+
+  midia:
+    name: Worker de mídia (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      # `--no-install-recommends` porque o ffmpeg puxa uma árvore de
+      # recomendados que nada aqui usa. Numa execução o espelho do
+      # Ubuntu arrastou e esse passo sozinho levou 48 minutos. Que o
+      # conjunto mínimo basta já está provado: é exatamente o que o
+      # Dockerfile do worker instala, e o passo abaixo converte um vídeo
+      # de verdade dentro daquela imagem.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pip install pytest
+      - name: Testes
+        run: python -m pytest -q
+        working-directory: services/mid
+
+      - name: Construir a imagem
+        run: docker build -f services/mid/Dockerfile -t naregua/mid:ci .
+
+      - name: Provar que o FFmpeg converte DENTRO da imagem
+        # A imagem é a única do projeto em Python e a única que depende
+        # de um binário externo. Build que passa não prova que o FFmpeg
+        # está lá nem que tem os codecs.
+        run: |
+          docker run --rm naregua/mid:ci sh -c '
+            ffmpeg -y -f lavfi -i "testsrc=duration=1:size=320x240:rate=10" \
+              -pix_fmt yuv420p /tmp/e.mp4 2>/dev/null
+            python - <<PY
+          import sys; sys.path.insert(0,"/app/src")
+          from pathlib import Path
+          from conversao import converter_video
+          converter_video(Path("/tmp/e.mp4"), Path("/tmp/s.mp4"), Path("/tmp/m.jpg"))
+          assert Path("/tmp/s.mp4").stat().st_size > 0
+          assert Path("/tmp/m.jpg").stat().st_size > 0
+          print("converteu dentro do container")
+          PY'
+
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    # Só formato e validação: `plan` exigiria credencial da AWS, e a do
+    # Learner Lab expira a cada sessão — não dá para guardar em secret.
+    strategy:
+      matrix:
+        camada: [bootstrap, ambientes/dev/persistente, ambientes/dev/efemera]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - run: terraform -chdir=infra/${{ matrix.camada }} fmt -check -diff
+      - run: terraform -chdir=infra/${{ matrix.camada }} init -backend=false -input=false
+      - run: terraform -chdir=infra/${{ matrix.camada }} validate
+
+  testes:
+    name: Banco, constraints e serviços
+    runs-on: ubuntu-latest
+    # Os testes dos serviços são de integração: batem num Postgres de
+    # verdade, com as constraints aplicadas. Rodar sem banco não provaria
+    # nada sobre as regras, que é justamente onde elas moram.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - name: Subir Postgres e LocalStack
+        # O LocalStack simula S3, SNS e SQS. Os testes da outbox batem
+        # nele de verdade: publicam, esperam a assinatura entregar na
+        # fila e conferem que a mensagem não some quando o tratamento
+        # falha. Com dublê nenhum desses três seria exercitado.
+        run: docker compose up -d --wait postgres localstack
+
+      - name: Esperar as filas e tópicos
+        run: |
+          for i in $(seq 1 40); do
+            if docker exec naregua-localstack-1 awslocal s3 ls 2>/dev/null | grep -q naregua-midia; then
+              echo "mensageria pronta"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::LocalStack não terminou o init"; exit 1
+
+      - name: Aplicar migrations e provar as constraints
+        run: bash db/testes/rodar.sh
+
+      - name: Provar que o teste pega constraint ausente
+        # Um teste que não falha quando a regra some não prova nada.
+        # Este passo derruba o EXCLUDE e exige que o teste acuse.
+        run: |
+          docker exec -i naregua-postgres-1 psql -U naregua -q \
+            -d naregua_vis -c "ALTER TABLE visita DROP CONSTRAINT visita_sem_sobreposicao;"
+          if docker exec -i naregua-postgres-1 psql -U naregua -v ON_ERROR_STOP=1 \
+               -q -d postgres < db/testes/constraints.test.sql; then
+            echo "::error::o teste PASSOU sem a constraint — ele não está provando nada"
+            exit 1
+          fi
+          echo "ok: o teste acusou a ausência da constraint"
+          docker exec -i naregua-postgres-1 psql -U naregua -q -d naregua_vis \
+            -c "ALTER TABLE visita ADD CONSTRAINT visita_sem_sobreposicao
+                EXCLUDE USING gist (id_equipamento WITH =, periodo WITH &&)
+                WHERE (status = 'agendada');"
+
+      - run: npm ci
+      - name: Testes dos serviços
+        run: npm test
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Preparar o worker de mídia para a cobertura
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m venv services/mid/.venv
+          services/mid/.venv/bin/pip install -q pytest coverage
+
+      - name: Cobertura global (RNF-020) e bloqueio (RNF-023)
+        # O script sai com 1 abaixo de 60%, e isso reprova o job — que é
+        # o que o RNF-023 pede. Gerar relatório não implementa bloqueio.
+        run: bash db/testes/cobertura.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura
+          path: coverage/
+          retention-days: 7

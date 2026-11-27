@@ -1,0 +1,18 @@
+node_modules/
+coverage/
+.demo-logs/
+*.log
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# variaveis com valores reais
+*.tfvars
+!*.tfvars.example
+.env
+.env.*

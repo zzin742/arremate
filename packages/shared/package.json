@@ -1,0 +1,20 @@
+{
+  "name": "@naregua/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node ../../testes/um-por-arquivo.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sns": "3.1150.0",
+    "@aws-sdk/client-sqs": "3.1150.0",
+    "jsonwebtoken": "9.0.2",
+    "pg": "8.13.1",
+    "prom-client": "15.1.3"
+  },
+  "devDependencies": {
+    "express": "4.21.2"
+  }
+}

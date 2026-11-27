@@ -1,0 +1,12 @@
+# Provisionamento da fonte de dados. Sem isto, o Grafana sobe vazio e
+# alguem precisa clicar para liga-lo ao Prometheus a cada ambiente novo
+# -- painel que depende de clique nao e observabilidade versionada.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    uid: prometheus
