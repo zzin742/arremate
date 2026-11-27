@@ -15,9 +15,22 @@ cd arremate
 bash scripts/demo.sh --semear
 ```
 
-O script sobe Postgres, roda as migrations, sobe AUTH e LEI, sobe a interface,
-**espera cada peça responder** antes da seguinte, e cria uma empresa de
-demonstração. Ele imprime o e-mail e a senha gerados — anote os dois.
+O script sobe Postgres, roda as migrations, sobe AUTH, LEI e HAB, sobe a
+interface, **espera cada peça responder** antes da seguinte, e semeia três
+empresas e três leilões com histórico de lances. Ele imprime os e-mails, a
+senha e os ids dos leilões — anote.
+
+> **Rodar `npm test` apaga os dados da demonstração.** Os testes dão `TRUNCATE`
+> nas tabelas para começarem limpos, então a tela fica vazia e o login passa a
+> dar "e-mail ou senha incorretos". Como o roteiro mostra a tela antes de rodar
+> os testes, **semeie de novo depois deles**:
+>
+> ```bash
+> node scripts/semear-demo.mjs
+> ```
+>
+> Leva três segundos e imprime credenciais e ids novos. É mais seguro do que
+> tentar lembrar da ordem ao vivo.
 
 Se qualquer passo falhar, o script diz qual e aponta o log em `.demo-logs/`.
 Ctrl+C derruba tudo o que ele subiu.
@@ -83,9 +96,14 @@ Três frases, uma por ideia:
 
 ### 3.1 — A tela (1 min)
 
-Interface em `localhost:5173`. Entre com a empresa semeada, abra um leilão
-("Torno mecânico 1998", lance inicial 1000, incremento 100) e mostre a tela do
-leilão com lance atual e contagem.
+Interface em `localhost:5173`. Entre com um dos compradores semeados e abra o
+leilão do torno pelo id, em *"Ou entrar num leilão"*. A tela mostra lance atual,
+mínimo aceito, contagem e o histórico numerado por sequência.
+
+**Dê um lance ali, na frente deles.** O valor tem de ser pelo menos o mínimo
+aceito; a tela responde `Lance R$ ... aceito — sequência N` e o histórico ganha
+a linha. Tente também um valor abaixo do mínimo: a recusa vem com o motivo em
+português, não com "erro 409".
 
 > "É a interface mínima do MVP: login e tela de lance. Deliberadamente mínima —
 > o que a gente foi defender está embaixo."
@@ -212,6 +230,8 @@ bash db/testes/cobertura.sh
 |---|---|
 | A tela não abre | `cat .demo-logs/web.log`. Se o Vite não subiu, rode `npm run web` à parte. |
 | Login dá erro de rede | AUTH caiu: `cat .demo-logs/auth.log`. O script já teria avisado se não subisse. |
+| "E-mail ou senha incorretos" com a credencial certa | Algum `npm test` rodou e truncou as tabelas. `node scripts/semear-demo.mjs` devolve tudo. |
+| "Habilitação ausente" ao lançar | O HAB não subiu: `cat .demo-logs/hab.log`. O lance exige a segunda credencial (RF-004, RF-012). |
 | `connect ECONNREFUSED ::1:5432` | Postgres parado. `npm run db:up`. |
 | Teste falha na hora | **Não tente consertar na frente da banca.** Mostre o teste rodando verde no último CI: `gh run list -R zzin742/arremate`. |
 

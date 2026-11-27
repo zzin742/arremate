@@ -116,6 +116,26 @@ describe('saúde e métricas', () => {
   });
 });
 
+describe('CORS: o que o navegador pode mandar', () => {
+  // Esta lista já esteve errada, e o sintoma era enganoso: faltando
+  // `X-Habilitacao`, o navegador recusava a requisição no preflight, a
+  // tela dizia "habilitação ausente" — idêntico a token inválido — e o
+  // log do servidor ficava vazio, porque nada chegava a ele.
+  test('o preflight autoriza X-Habilitacao', async () => {
+    const r = await s.options(`/leiloes/${crypto.randomUUID()}/lances`);
+    assert.equal(r.status, 204);
+    const permitidos = r.cabecalhos.get('access-control-allow-headers');
+    assert.match(permitidos, /X-Habilitacao/i,
+      'sem isto o lance pela tela nunca sai do navegador');
+    assert.match(permitidos, /Authorization/i);
+  });
+
+  test('a origem do frontend é a permitida', async () => {
+    const r = await s.get('/saude');
+    assert.equal(r.cabecalhos.get('access-control-allow-origin'), 'http://localhost:5173');
+  });
+});
+
 describe('abertura de leilão (RF-011)', () => {
   test('abre e devolve 201', async () => {
     const r = await leilao();

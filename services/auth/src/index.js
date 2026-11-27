@@ -21,7 +21,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.set({
     'Access-Control-Allow-Origin': process.env.ORIGEM_PERMITIDA ?? 'http://localhost:5173',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Habilitacao',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   });
   if (req.method === 'OPTIONS') return res.sendStatus(204);

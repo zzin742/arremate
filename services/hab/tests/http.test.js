@@ -44,6 +44,21 @@ async function habilitacao(situacao) {
   );
 }
 
+describe('CORS: o navegador pede a habilitação direto ao HAB', () => {
+  // O HAB não tinha CORS nenhum, e por isso a tela nunca conseguia
+  // buscar o token: a chamada morria no navegador, sem rastro aqui.
+  test('responde com a origem do frontend', async () => {
+    const r = await s.get('/saude');
+    assert.equal(r.cabecalhos.get('access-control-allow-origin'), 'http://localhost:5173');
+  });
+
+  test('o preflight do token é respondido', async () => {
+    const r = await s.options(`/empresas/${crypto.randomUUID()}/token`);
+    assert.equal(r.status, 204);
+    assert.match(r.cabecalhos.get('access-control-allow-headers'), /Authorization/i);
+  });
+});
+
 describe('saúde e métricas', () => {
   test('saúde responde', async () => {
     const r = await s.get('/saude');

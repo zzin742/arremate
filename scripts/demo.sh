@@ -22,6 +22,7 @@ mkdir -p "$LOGS"
 
 AUTH=http://localhost:3001
 LEI=http://localhost:3002
+HAB=http://localhost:3003
 WEB=http://localhost:5173
 
 azul()  { printf '\033[34m%s\033[0m\n' "$*"; }
@@ -67,12 +68,15 @@ azul '==> 2/4 migrations'
 node db/migrar.js | tail -1
 
 azul '==> 3/4 serviços'
-for s in auth lei; do
+# O HAB entra porque o lance exige habilitação (RF-004, RF-012): sem ele
+# a tela loga e para no primeiro clique com "Habilitação ausente".
+for s in auth lei hab; do
   npm start --workspace "@arremate/$s" >"$LOGS/$s.log" 2>&1 &
   pids+=($!)
 done
 esperar "$AUTH/saude" auth
 esperar "$LEI/saude" lei
+esperar "$HAB/saude" hab
 
 azul '==> 4/4 interface'
 npm run web >"$LOGS/web.log" 2>&1 &
@@ -80,22 +84,12 @@ pids+=($!)
 esperar "$WEB" web 60
 
 if [[ "${1:-}" == '--semear' ]]; then
-  azul '==> semeando empresa e leilão'
-  # O e-mail leva o epoch para a semeadura poder ser repetida sem
-  # esbarrar no UNIQUE do cadastro.
-  email="demo-$(date +%s)@arremate.local"
-  senha='demo12345'
-
-  curl -fsS -X POST "$AUTH/empresas" -H 'Content-Type: application/json' \
-    -d "{\"cnpj\":\"11222333000181\",\"razaoSocial\":\"Metalúrgica Demo\",\"email\":\"$email\",\"senha\":\"$senha\"}" \
-    >/dev/null
-  verde "    empresa criada: $email / $senha"
-  echo
-  verde '    Entre na interface com esse e-mail e abra um leilão pela tela.'
-  echo '    O lance exige habilitação e caução (RF-012), que são do HAB e do CAU —'
-  echo '    por isso a demo de concorrência roda pelo teste, não pelo navegador:'
-  echo
-  echo '      npm test --workspace @arremate/lei'
+  azul '==> semeando exemplos'
+  # Em Node, e não em curl: o semeador precisa calcular CNPJ válido,
+  # guardar token entre chamadas e escrever em dois bancos. A versão
+  # anterior era uma linha de curl com CNPJ fixo, e morria em 409 na
+  # segunda vez — com `set -e`, derrubando a demo inteira junto.
+  node scripts/semear-demo.mjs || erro '    semeadura falhou; os serviços seguem no ar'
 fi
 
 echo

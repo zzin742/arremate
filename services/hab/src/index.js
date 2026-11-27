@@ -17,6 +17,19 @@ app.use(metricas.middleware);
 app.get('/metricas', metricas.handler);
 app.use(express.json());
 
+// O navegador pede a habilitação direto ao HAB depois de entrar, e o
+// frontend roda em outra porta — sem isto a chamada nem sai, e a tela
+// acusa "habilitação ausente" sem nenhum registro no log daqui.
+app.use((req, res, next) => {
+  res.set({
+    'Access-Control-Allow-Origin': process.env.ORIGEM_PERMITIDA ?? 'http://localhost:5173',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  });
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.get('/saude', (_req, res) => res.json({ servico: 'hab', ok: true }));
 
 const SEGREDO = process.env.JWT_SEGREDO ?? 'segredo-de-desenvolvimento';
