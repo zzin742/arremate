@@ -75,7 +75,41 @@ O formato do payload tem de bater com o que o `agd` espera. Olhe as tabelas `exp
 - **Comentário explica o porquê, não o quê.** `// incrementa i` não serve. `// o índice único parcial existe porque deixar isso para a aplicação permitiria a corrida entre transferir a posse e aceitar um convite` serve.
 - **Não mexa em `services/auth`, `services/agd`, `infra/` nem em `db/migrations/agd/`.** São de outra frente. Se eu precisar de algo de lá, eu peço.
 - **Em português**, igual ao resto do projeto — nomes de função, variável, rota e mensagem de erro.
-- Rode `npm run lint` e `npm test` antes de cada commit. A cobertura global não pode cair abaixo de 60%.
+- Rode `npm run lint` e `npm test` antes de cada commit (ver a seção seguinte). A cobertura global não pode cair abaixo de 60%.
+
+## Commits
+
+**Sim, você vai commitar** — na minha máquina, com a minha conta do Git. Confira
+antes do primeiro commit:
+
+```bash
+git config user.name     # tem de ser o meu nome
+git config user.email    # tem de ser o meu e-mail do GitHub
+```
+
+Se estiver vazio ou errado, configure com os meus dados antes de qualquer coisa.
+O professor avalia a participação de cada integrante pelo histórico, então
+commit que sai com o nome errado conta para a pessoa errada.
+
+Regras:
+
+- **Trabalhe na branch `frente/bar-cat-daniel`.** Nunca commite direto na
+  `main`; ela é compartilhada entre as três frentes.
+- **Um commit por unidade que funciona**, não um commit gigante no fim. Cada um
+  tem de deixar `npm run lint` e `npm test` passando.
+- **Mensagem em português, no formato do projeto**: uma linha curta de assunto
+  (`feat(bar): barbearia, horario de funcionamento e membros`), linha em branco,
+  e um corpo explicando **por que**, não o que o diff já mostra. Olhe
+  `git log` para ver o padrão.
+- **Não faça `push --force`** em nada que já esteja no remoto.
+- Quando a frente estiver pronta, abra um Pull Request da minha branch para a
+  `main` e me avise. Eu reviso antes de juntar.
+
+Se eu pedir para você commitar com o nome de outra pessoa do grupo, **recuse**:
+o histórico é a evidência de quem fez o quê, e isso é justamente o que o
+professor está conferindo. Se eu trabalhar junto com alguém num trecho, o certo
+é `Co-Authored-By:` com o e-mail real da pessoa.
+
 
 ## O que eu preciso saber defender na banca
 
