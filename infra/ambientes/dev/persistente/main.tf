@@ -31,34 +31,40 @@ locals {
   nome = "${var.prefixo}-${var.ambiente}"
 
   # Inventário do documento 05, §3.4. Mantido aqui em vez de espalhado
-  # pelos recursos para que o mapa topico -> fila se leia de uma vez.
+  # pelos recursos para que o mapa tópico -> fila se leia de uma vez.
   topicos = [
-    "conta-criada", "midia-enviada", "midia-convertida",
-    "lance-superado", "leilao-encerrado", "leilao-liquidar",
-    # o CAU avisa o LEI quando a caucao muda; o LEI mantem um espelho
-    # local para conferir dentro da trava do leilao, sem chamada de rede
-    "caucao-mudou",
+    "conta-criada",
+    # o AGD publica; o NOT avisa o cliente e a barbearia, e o ASS desconta
+    # o corte do plano quando o atendimento foi por assinatura
+    "agendamento-criado", "agendamento-cancelado", "atendimento-concluido",
+    # o CAT publica quando o expediente ou um bloqueio muda; o AGD mantém
+    # um espelho local para decidir dentro da transação do agendamento
+    "expediente-mudou",
+    "pagamento-confirmado",
   ]
 
   filas = [
-    "habilitacao-verificar", "midia-upload-concluido", "midia-converter",
-    "catalogo-atualizar-midia", "notificacao-enviar", "caucao-liquidar",
-    "leilao-espelhar-caucao",
+    "notificacao-enviar",
+    "agd-espelhar-expediente",
+    "ass-descontar-uso",
+    "ava-liberar-avaliacao",
+    "bar-conta-criada",
   ]
 
   # chave = "topico|fila", para o for_each ter identificador estável que
   # não depende de ARN gerado no apply
   assinaturas = {
-    "conta-criada|habilitacao-verificar"        = ["conta-criada", "habilitacao-verificar"]
-    "midia-enviada|midia-converter"             = ["midia-enviada", "midia-converter"]
-    "midia-convertida|catalogo-atualizar-midia" = ["midia-convertida", "catalogo-atualizar-midia"]
-    "lance-superado|notificacao-enviar"         = ["lance-superado", "notificacao-enviar"]
-    "leilao-encerrado|notificacao-enviar"       = ["leilao-encerrado", "notificacao-enviar"]
-    "leilao-liquidar|caucao-liquidar"           = ["leilao-liquidar", "caucao-liquidar"]
-    "caucao-mudou|leilao-espelhar-caucao"       = ["caucao-mudou", "leilao-espelhar-caucao"]
+    "conta-criada|bar-conta-criada"               = ["conta-criada", "bar-conta-criada"]
+    "expediente-mudou|agd-espelhar-expediente"    = ["expediente-mudou", "agd-espelhar-expediente"]
+    "agendamento-criado|notificacao-enviar"       = ["agendamento-criado", "notificacao-enviar"]
+    "agendamento-cancelado|notificacao-enviar"    = ["agendamento-cancelado", "notificacao-enviar"]
+    "atendimento-concluido|notificacao-enviar"    = ["atendimento-concluido", "notificacao-enviar"]
+    "atendimento-concluido|ass-descontar-uso"     = ["atendimento-concluido", "ass-descontar-uso"]
+    "atendimento-concluido|ava-liberar-avaliacao" = ["atendimento-concluido", "ava-liberar-avaliacao"]
+    "pagamento-confirmado|notificacao-enviar"     = ["pagamento-confirmado", "notificacao-enviar"]
   }
 
-  servicos = ["auth", "hab", "cat", "mid", "lei", "cau", "vis", "not", "web"]
+  servicos = ["auth", "bar", "cat", "agd", "ass", "ava", "pag", "not", "web"]
 }
 
 # ── Mídia ──────────────────────────────────────────────────────────────
@@ -68,7 +74,7 @@ locals {
 # nascia e o apply quebrava logo depois. O Cloud Control não passa por
 # ali. Registrado como ADR-013.
 resource "awscc_s3_bucket" "midia" {
-  bucket_name = "${local.nome}-midia"
+  bucket_name = "${local.nome}-fotos"
 
   public_access_block_configuration = {
     block_public_acls       = true

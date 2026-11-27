@@ -27,17 +27,19 @@ scrape_configs:
       - targets: ['host.docker.internal:3001']
         labels: { servico: auth }
       - targets: ['host.docker.internal:3002']
-        labels: { servico: lei }
+        labels: { servico: bar }
       - targets: ['host.docker.internal:3003']
-        labels: { servico: hab }
-      - targets: ['host.docker.internal:3004']
-        labels: { servico: cau }
-      - targets: ['host.docker.internal:3005']
-        labels: { servico: vis }
-      - targets: ['host.docker.internal:3006']
-        labels: { servico: not }
-      - targets: ['host.docker.internal:3007']
         labels: { servico: cat }
+      - targets: ['host.docker.internal:3004']
+        labels: { servico: agd }
+      - targets: ['host.docker.internal:3005']
+        labels: { servico: ass }
+      - targets: ['host.docker.internal:3006']
+        labels: { servico: ava }
+      - targets: ['host.docker.internal:3007']
+        labels: { servico: pag }
+      - targets: ['host.docker.internal:3008']
+        labels: { servico: not }
 
   - job_name: prometheus
     static_configs:

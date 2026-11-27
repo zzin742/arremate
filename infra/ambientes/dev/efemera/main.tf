@@ -26,33 +26,28 @@ locals {
   # vê rajada na janela de disputa; os demais têm carga previsível.
   servicos = {
     auth = { porta = 3001, cpu = 256, memoria = 512, tarefas = 1 }
-    hab  = { porta = 3003, cpu = 256, memoria = 512, tarefas = 1 }
-    lei  = { porta = 3002, cpu = 512, memoria = 1024, tarefas = 2 }
+    bar  = { porta = 3002, cpu = 256, memoria = 512, tarefas = 1 }
+    cat  = { porta = 3003, cpu = 256, memoria = 512, tarefas = 1 }
+    # O AGD escala de 2 a 4: é o único que vê rajada, porque todo mundo
+    # marca no mesmo horário de pico. Os demais têm carga previsível.
+    agd = { porta = 3004, cpu = 512, memoria = 1024, tarefas = 2 }
   }
 
   filas = data.terraform_remote_state.persistente.outputs.filas
 
-  # O que cada serviço precisa saber da mensageria. Lista vazia para
-  # quem não consome nada — `concat` com vazio não muda o ambiente.
+  # O que cada serviço precisa saber da mensageria. Lista vazia para quem
+  # não consome nada — `concat` com vazio não muda o ambiente.
   ambiente_de_fila = {
     auth = []
-    hab = [
-      { name = "FILA_HABILITACAO", value = local.filas["habilitacao-verificar"] },
+    bar = [
+      { name = "FILA_CONTA_CRIADA", value = local.filas["bar-conta-criada"] },
     ]
-    lei = [
-      { name = "FILA_ESPELHAR_CAUCAO", value = local.filas["leilao-espelhar-caucao"] },
-    ]
-    # O CAU ainda NÃO está em `servicos`, então esta entrada não é lida
-    # por nenhuma task hoje — `ambiente_de_fila` é indexado por serviço
-    # implantado. Fica declarada porque o tópico `leilao-liquidar`, a
-    # fila `caucao-liquidar` e a assinatura entre os dois já existem na
-    # camada persistente: o evento chega à fila e ninguém o tira de lá
-    # até o CAU subir. Quando ele entrar no mapa de serviços, o
-    # consumidor liga sem mais nenhuma mudança aqui.
-    cau = [
-      { name = "FILA_LIQUIDACAO", value = local.filas["caucao-liquidar"] },
+    cat = []
+    agd = [
+      { name = "FILA_ESPELHAR_EXPEDIENTE", value = local.filas["agd-espelhar-expediente"] },
     ]
   }
+
 }
 
 # A camada efêmera LÊ a persistente, nunca o contrário: se fosse o
