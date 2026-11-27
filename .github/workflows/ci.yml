@@ -111,32 +111,28 @@ jobs:
 
       - name: Provar que o teste pega constraint ausente
         # Um teste que não falha quando a regra some não prova nada.
-        # Este passo derruba o EXCLUDE e exige que o teste acuse.
+        # Este passo derruba a constraint CENTRAL do produto — a que
+        # impede duas marcações na mesma cadeira — e exige que o teste
+        # acuse. Se ele passar sem ela, o teste é decorativo.
         run: |
           docker exec -i naregua-postgres-1 psql -U naregua -q \
-            -d naregua_vis -c "ALTER TABLE visita DROP CONSTRAINT visita_sem_sobreposicao;"
+            -d naregua_agd -c "ALTER TABLE agendamento DROP CONSTRAINT cadeira_ocupada_uma_vez;"
           if docker exec -i naregua-postgres-1 psql -U naregua -v ON_ERROR_STOP=1 \
                -q -d postgres < db/testes/constraints.test.sql; then
             echo "::error::o teste PASSOU sem a constraint — ele não está provando nada"
             exit 1
           fi
           echo "ok: o teste acusou a ausência da constraint"
-          docker exec -i naregua-postgres-1 psql -U naregua -q -d naregua_vis \
-            -c "ALTER TABLE visita ADD CONSTRAINT visita_sem_sobreposicao
-                EXCLUDE USING gist (id_equipamento WITH =, periodo WITH &&)
-                WHERE (status = 'agendada');"
+          docker exec -i naregua-postgres-1 psql -U naregua -q -d naregua_agd \
+            -c "ALTER TABLE agendamento ADD CONSTRAINT cadeira_ocupada_uma_vez
+                EXCLUDE USING gist (
+                  id_barbeiro WITH =,
+                  tsrange((dia + comeca_em), (dia + termina_em), '[)') WITH &&
+                ) WHERE (status IN ('agendado', 'concluido'));"
 
       - run: npm ci
       - name: Testes dos serviços
         run: npm test
-
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
-      - name: Preparar o worker de mídia para a cobertura
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-          python -m venv services/mid/.venv
-          services/mid/.venv/bin/pip install -q pytest coverage
 
       - name: Cobertura global (RNF-020) e bloqueio (RNF-023)
         # O script sai com 1 abaixo de 60%, e isso reprova o job — que é
