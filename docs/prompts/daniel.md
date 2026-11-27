@@ -2,9 +2,36 @@ Você vai implementar a minha frente de um Projeto Experimental da faculdade (AD
 
 Meu nome é Daniel. Minha frente é **"Dados e catálogo"** — os serviços `bar` e `cat`.
 
+## O repositório
+
+```
+https://github.com/zzin742/naregua
+```
+
+Eu já sou colaborador com permissão de escrita, e a minha branch já existe:
+**`frente/bar-cat-daniel`**.
+
+```bash
+gh auth login          # se ainda não estiver autenticado nesta máquina
+git clone https://github.com/zzin742/naregua.git
+cd naregua
+git checkout frente/bar-cat-daniel
+```
+
+Se o `gh auth login` interativo não servir, eu tenho um token pessoal do GitHub
+e colo ele aqui na máquina:
+
+```bash
+gh auth login --with-token      # e colo o token quando pedir
+```
+
+**Nunca escreva o meu token num arquivo do repositório**, nem num commit, nem
+numa mensagem. Token em texto que circula vaza por acidente. Se ele aparecer em
+qualquer arquivo versionado, me avise para eu revogar.
+
 ## Antes de escrever qualquer código
 
-Clone o repositório e leia, nesta ordem:
+Leia, nesta ordem:
 
 1. `README.md` — o problema e a arquitetura
 2. `docs/divisao-do-trabalho.md` — a minha frente está detalhada lá, com as rotas
