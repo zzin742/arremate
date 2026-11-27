@@ -99,7 +99,7 @@ jobs:
       - name: Esperar as filas e tópicos
         run: |
           for i in $(seq 1 40); do
-            if docker exec naregua-localstack-1 awslocal s3 ls 2>/dev/null | grep -q naregua-midia; then
+            if docker exec naregua-localstack-1 awslocal s3 ls 2>/dev/null | grep -q naregua-fotos; then
               echo "mensageria pronta"; exit 0
             fi
             sleep 5
